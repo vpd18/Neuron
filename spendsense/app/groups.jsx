@@ -15,18 +15,15 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme } from "./theme";
 
 const GROUPS_KEY = "@spendsense_groups";
 const ACTIVE_GROUP_KEY = "@spendsense_active_group_id";
 
-const BG = "#050816";
-const CARD = "#020617";
-const CARD_ELEVATED = "#0F172A";
-const TEXT = "#E5E7EB";
-const MUTED = "#9CA3AF";
-const PRIMARY = "#4F46E5";
-
 export default function GroupsScreen() {
+  const { palette } = useTheme();
+  const styles = makeStyles(palette);
+
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
 
@@ -466,14 +463,14 @@ export default function GroupsScreen() {
       <TouchableOpacity
         style={[
           styles.groupCard,
-          isActive && { borderColor: PRIMARY, borderWidth: 1.5 },
+          isActive && { borderColor: palette.PRIMARY, borderWidth: 1.5 },
         ]}
         onPress={() => openGroupDetails(item.id)}
         onLongPress={() => handleDeleteGroup(item.id)}
         delayLongPress={400}
       >
         <View style={styles.groupIcon}>
-          <Ionicons name="people" size={20} color="#E5E7EB" />
+          <Ionicons name="people" size={20} color={palette.TEXT} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.groupName}>{item.name}</Text>
@@ -488,11 +485,11 @@ export default function GroupsScreen() {
         </View>
         {isActive ? (
           <View style={styles.activeBadge}>
-            <Ionicons name="sparkles-outline" size={14} color="#A5B4FC" />
+            <Ionicons name="sparkles-outline" size={14} color={palette.PRIMARY} />
             <Text style={styles.activeBadgeText}>Active</Text>
           </View>
         ) : (
-          <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+          <Ionicons name="chevron-forward" size={20} color={palette.MUTED} />
         )}
       </TouchableOpacity>
     );
@@ -532,7 +529,7 @@ export default function GroupsScreen() {
       {/* Groups list */}
       {groups.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="people-circle-outline" size={44} color="#6B7280" />
+          <Ionicons name="people-circle-outline" size={44} color={palette.MUTED} />
           <Text style={styles.emptyTitle}>No groups yet</Text>
           <Text style={styles.emptySubtitle}>
             Tap “New group” to start tracking Flatmates, Goa Trip, etc.
@@ -548,7 +545,7 @@ export default function GroupsScreen() {
       )}
 
       {/* FAB: New group */}
-      <TouchableOpacity style={styles.fab} onPress={handleOpenCreateModal}>
+      <TouchableOpacity style={[styles.fab, { backgroundColor: palette.PRIMARY }]} onPress={handleOpenCreateModal}>
         <Ionicons name="add" size={24} color="#FFFFFF" />
         <Text style={styles.fabText}>New group</Text>
       </TouchableOpacity>
@@ -565,7 +562,7 @@ export default function GroupsScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Create group</Text>
               <Pressable onPress={handleCloseCreateModal}>
-                <Ionicons name="close" size={22} color="#9CA3AF" />
+                <Ionicons name="close" size={22} color={palette.MUTED} />
               </Pressable>
             </View>
 
@@ -574,7 +571,7 @@ export default function GroupsScreen() {
               value={groupName}
               onChangeText={setGroupName}
               placeholder="e.g. Flatmates, Goa Trip, College Fest"
-              placeholderTextColor="#6B7280"
+              placeholderTextColor={palette.MUTED}
               style={styles.input}
             />
 
@@ -615,7 +612,7 @@ export default function GroupsScreen() {
                   <Ionicons
                     name="people"
                     size={20}
-                    color="#E5E7EB"
+                    color={palette.TEXT}
                     style={{ marginRight: 8 }}
                   />
                   <Text style={styles.modalTitle}>
@@ -626,17 +623,17 @@ export default function GroupsScreen() {
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   {selectedGroup &&
                     (selectedGroup.id === activeGroupId ? (
-                      <View style={styles.activeBadge}>
+                      <View style={[styles.activeBadge, { backgroundColor: palette.CARD_ELEVATED }]}>
                         <Ionicons
                           name="sparkles-outline"
                           size={14}
-                          color="#A5B4FC"
+                          color={palette.PRIMARY}
                         />
                         <Text style={styles.activeBadgeText}>Active</Text>
                       </View>
                     ) : (
                       <TouchableOpacity
-                        style={styles.setActiveButton}
+                        style={[styles.setActiveButton, { borderColor: palette.PRIMARY }]}
                         onPress={() =>
                           handleSetActiveGroup(selectedGroup.id)
                         }
@@ -644,16 +641,16 @@ export default function GroupsScreen() {
                         <Ionicons
                           name="radio-button-on-outline"
                           size={14}
-                          color="#A5B4FC"
+                          color={palette.PRIMARY}
                         />
-                        <Text style={styles.setActiveText}>Set active</Text>
+                        <Text style={[styles.setActiveText, { color: palette.PRIMARY }]}>Set active</Text>
                       </TouchableOpacity>
                     ))}
                   <Pressable
                     onPress={closeGroupDetails}
                     style={{ marginLeft: 8 }}
                   >
-                    <Ionicons name="close" size={22} color="#9CA3AF" />
+                    <Ionicons name="close" size={22} color={palette.MUTED} />
                   </Pressable>
                 </View>
               </View>
@@ -677,7 +674,7 @@ export default function GroupsScreen() {
                 value={memberName}
                 onChangeText={setMemberName}
                 placeholder="e.g. You, Vishnu, Arun"
-                placeholderTextColor="#6B7280"
+                placeholderTextColor={palette.MUTED}
                 style={styles.input}
               />
 
@@ -712,18 +709,14 @@ export default function GroupsScreen() {
                       let line = "";
                       let color = "#22C55E";
                       if (b.balance > 0) {
-                        line = `${b.name} should receive ₹ ${b.balance.toFixed(
-                          0
-                        )}`;
+                        line = `${b.name} should receive ₹ ${b.balance.toFixed(0)}`;
                         color = "#22C55E";
                       } else if (b.balance < 0) {
-                        line = `${b.name} owes ₹ ${Math.abs(
-                          b.balance
-                        ).toFixed(0)}`;
+                        line = `${b.name} owes ₹ ${Math.abs(b.balance).toFixed(0)}`;
                         color = "#F97316";
                       } else {
                         line = `${b.name} is settled up`;
-                        color = "#9CA3AF";
+                        color = palette.MUTED;
                       }
 
                       return (
@@ -771,21 +764,21 @@ export default function GroupsScreen() {
                 value={expenseDesc}
                 onChangeText={setExpenseDesc}
                 placeholder="Description (e.g. Dinner, Cab, Rent)"
-                placeholderTextColor="#6B7280"
+                placeholderTextColor={palette.MUTED}
                 style={styles.input}
               />
               <TextInput
                 value={expenseCategory}
                 onChangeText={setExpenseCategory}
                 placeholder="Category (e.g. Food, Travel, Bills)"
-                placeholderTextColor="#6B7280"
+                placeholderTextColor={palette.MUTED}
                 style={[styles.input, { marginTop: 8 }]}
               />
               <TextInput
                 value={expenseAmount}
                 onChangeText={setExpenseAmount}
                 placeholder="Amount (₹)"
-                placeholderTextColor="#6B7280"
+                placeholderTextColor={palette.MUTED}
                 keyboardType="numeric"
                 style={[styles.input, { marginTop: 8 }]}
               />
@@ -803,14 +796,14 @@ export default function GroupsScreen() {
                         key={m.id}
                         style={[
                           styles.pill,
-                          isSelected && styles.pillSelected,
+                          isSelected && { backgroundColor: palette.PRIMARY, borderColor: palette.PRIMARY },
                         ]}
                         onPress={() => setPayerId(m.id)}
                       >
                         <Text
                           style={[
                             styles.pillText,
-                            isSelected && styles.pillTextSelected,
+                            isSelected && { color: "#FFFFFF", fontWeight: "600" },
                           ]}
                         >
                           {m.name}
@@ -838,14 +831,14 @@ export default function GroupsScreen() {
                         key={m.id}
                         style={[
                           styles.pill,
-                          isSelected && styles.pillSelected,
+                          isSelected && { backgroundColor: palette.PRIMARY, borderColor: palette.PRIMARY },
                         ]}
                         onPress={() => toggleParticipant(m.id)}
                       >
                         <Text
                           style={[
                             styles.pillText,
-                            isSelected && styles.pillTextSelected,
+                            isSelected && { color: "#FFFFFF", fontWeight: "600" },
                           ]}
                         >
                           {m.name}
@@ -893,344 +886,346 @@ export default function GroupsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: BG,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  headerRow: {
-    marginBottom: 16,
-  },
-  screenTitle: {
-    color: TEXT,
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  screenSubtitle: {
-    color: MUTED,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  infoCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: CARD_ELEVATED,
-    borderRadius: 18,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-    marginBottom: 16,
-  },
-  infoTitle: {
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  infoText: {
-    color: MUTED,
-    fontSize: 12,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    color: TEXT,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  sectionCount: {
-    color: MUTED,
-    fontSize: 12,
-  },
-  groupCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: CARD_ELEVATED,
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#111827",
-  },
-  groupIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 999,
-    backgroundColor: "#111827",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  groupName: {
-    color: TEXT,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  groupMeta: {
-    color: MUTED,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  groupMetaSmall: {
-    color: "#6B7280",
-    fontSize: 11,
-    marginTop: 2,
-  },
-  activeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1D2236",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  activeBadgeText: {
-    color: "#C7D2FE",
-    fontSize: 11,
-    marginLeft: 4,
-    fontWeight: "600",
-  },
-  setActiveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#111827",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "#1D4ED8",
-  },
-  setActiveText: {
-    color: "#C7D2FE",
-    fontSize: 11,
-    marginLeft: 4,
-    fontWeight: "600",
-  },
-  emptyState: {
-    alignItems: "center",
-    marginTop: 48,
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    color: TEXT,
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 16,
-  },
-  emptySubtitle: {
-    color: MUTED,
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 6,
-  },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 90,
-    flexDirection: "row",
-    backgroundColor: PRIMARY,
-    borderRadius: 999,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  fabText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    marginLeft: 8,
-    fontSize: 14,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15,23,42,0.7)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: CARD,
-    padding: 16,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-    maxHeight: "90%",
-  },
-  modalScrollContent: {
-    paddingBottom: 16,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  modalTitle: {
-    color: TEXT,
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  modalLabel: {
-    color: MUTED,
-    fontSize: 13,
-    marginBottom: 6,
-    marginTop: 6,
-  },
-  input: {
-    backgroundColor: "#020617",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: TEXT,
-    fontSize: 14,
-  },
-  modalButton: {
-    backgroundColor: PRIMARY,
-    borderRadius: 999,
-    paddingVertical: 11,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  modalButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  modalHint: {
-    color: "#6B7280",
-    fontSize: 11,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  membersContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 4,
-  },
-  membersEmpty: {
-    color: "#6B7280",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  memberChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#020617",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  memberAvatar: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: "#111827",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 6,
-  },
-  memberAvatarText: {
-    color: TEXT,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  memberName: {
-    color: TEXT,
-    fontSize: 13,
-  },
-  balancesHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  balancesList: {
-    marginTop: 4,
-  },
-  balanceRow: {
-    paddingVertical: 3,
-  },
-  balanceText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  expensesHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  expensesSummary: {
-    color: "#9CA3AF",
-    fontSize: 11,
-  },
-  expensesList: {
-    marginTop: 4,
-  },
-  expenseCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#020617",
-    borderRadius: 14,
-    padding: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#111827",
-  },
-  expenseTitle: {
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  expenseMeta: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  expenseMetaSmall: {
-    color: "#6B7280",
-    fontSize: 11,
-    marginTop: 2,
-  },
-  expenseAmount: {
-    color: "#F97316",
-    fontSize: 15,
-    fontWeight: "700",
-    marginLeft: 10,
-  },
-  payerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 4,
-  },
-  pill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-    backgroundColor: "#020617",
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  pillSelected: {
-    backgroundColor: PRIMARY,
-    borderColor: PRIMARY,
-  },
-  pillText: {
-    color: "#9CA3AF",
-    fontSize: 12,
-  },
-  pillTextSelected: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-});
+// dynamic styles factory so UI follows palette
+function makeStyles(p) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: p.BG,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+    },
+    headerRow: {
+      marginBottom: 16,
+    },
+    screenTitle: {
+      color: p.TEXT,
+      fontSize: 24,
+      fontWeight: "800",
+    },
+    screenSubtitle: {
+      color: p.MUTED,
+      fontSize: 13,
+      marginTop: 4,
+    },
+    infoCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD_ELEVATED,
+      borderRadius: 18,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#1F2937",
+      marginBottom: 16,
+    },
+    infoTitle: {
+      color: p.TEXT,
+      fontSize: 14,
+      fontWeight: "600",
+      marginBottom: 2,
+    },
+    infoText: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    sectionHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    sectionTitle: {
+      color: p.TEXT,
+      fontSize: 16,
+      fontWeight: "700",
+    },
+    sectionCount: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    groupCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD_ELEVATED,
+      borderRadius: 16,
+      padding: 12,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#111827",
+    },
+    groupIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 999,
+      backgroundColor: p.BORDER || "#111827",
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 12,
+    },
+    groupName: {
+      color: p.TEXT,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    groupMeta: {
+      color: p.MUTED,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    groupMetaSmall: {
+      color: p.MUTED,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    activeBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    activeBadgeText: {
+      color: p.PRIMARY,
+      fontSize: 11,
+      marginLeft: 4,
+      fontWeight: "600",
+    },
+    setActiveButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderWidth: 1,
+    },
+    setActiveText: {
+      color: p.PRIMARY,
+      fontSize: 11,
+      marginLeft: 4,
+      fontWeight: "600",
+    },
+    emptyState: {
+      alignItems: "center",
+      marginTop: 48,
+      paddingHorizontal: 32,
+    },
+    emptyTitle: {
+      color: p.TEXT,
+      fontSize: 16,
+      fontWeight: "700",
+      marginTop: 16,
+    },
+    emptySubtitle: {
+      color: p.MUTED,
+      fontSize: 13,
+      textAlign: "center",
+      marginTop: 6,
+    },
+    fab: {
+      position: "absolute",
+      right: 20,
+      bottom: 90,
+      flexDirection: "row",
+      borderRadius: 999,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      alignItems: "center",
+      elevation: 3,
+    },
+    fabText: {
+      color: "#FFFFFF",
+      fontWeight: "700",
+      marginLeft: 8,
+      fontSize: 14,
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(15,23,42,0.7)",
+      justifyContent: "flex-end",
+    },
+    modalContent: {
+      backgroundColor: p.CARD,
+      padding: 16,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#1F2937",
+      maxHeight: "90%",
+    },
+    modalScrollContent: {
+      paddingBottom: 16,
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    modalTitle: {
+      color: p.TEXT,
+      fontSize: 18,
+      fontWeight: "700",
+    },
+    modalLabel: {
+      color: p.MUTED,
+      fontSize: 13,
+      marginBottom: 6,
+      marginTop: 6,
+    },
+    input: {
+      backgroundColor: p.CARD,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#1F2937",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: p.TEXT,
+      fontSize: 14,
+    },
+    modalButton: {
+      backgroundColor: p.PRIMARY,
+      borderRadius: 999,
+      paddingVertical: 11,
+      alignItems: "center",
+      marginTop: 8,
+    },
+    modalButtonText: {
+      color: "#FFFFFF",
+      fontWeight: "700",
+      fontSize: 14,
+    },
+    modalHint: {
+      color: p.MUTED,
+      fontSize: 11,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    membersContainer: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      marginBottom: 4,
+    },
+    membersEmpty: {
+      color: p.MUTED,
+      fontSize: 12,
+      marginBottom: 4,
+    },
+    memberChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#1F2937",
+      marginRight: 6,
+      marginBottom: 6,
+    },
+    memberAvatar: {
+      width: 22,
+      height: 22,
+      borderRadius: 999,
+      backgroundColor: p.BORDER || "#111827",
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 6,
+    },
+    memberAvatarText: {
+      color: p.TEXT,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    memberName: {
+      color: p.TEXT,
+      fontSize: 13,
+    },
+    balancesHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+    },
+    balancesList: {
+      marginTop: 4,
+    },
+    balanceRow: {
+      paddingVertical: 3,
+    },
+    balanceText: {
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    expensesHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+    },
+    expensesSummary: {
+      color: p.MUTED,
+      fontSize: 11,
+    },
+    expensesList: {
+      marginTop: 4,
+    },
+    expenseCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: p.CARD,
+      borderRadius: 14,
+      padding: 10,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#111827",
+    },
+    expenseTitle: {
+      color: p.TEXT,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    expenseMeta: {
+      color: p.MUTED,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    expenseMetaSmall: {
+      color: p.MUTED,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    expenseAmount: {
+      color: "#F97316",
+      fontSize: 15,
+      fontWeight: "700",
+      marginLeft: 10,
+    },
+    payerRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      marginBottom: 4,
+    },
+    pill: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderWidth: 1,
+      borderColor: p.BORDER || "#1F2937",
+      backgroundColor: p.CARD,
+      marginRight: 6,
+      marginBottom: 6,
+    },
+    pillSelected: {
+      backgroundColor: p.PRIMARY,
+      borderColor: p.PRIMARY,
+    },
+    pillText: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    pillTextSelected: {
+      color: "#FFFFFF",
+      fontWeight: "600",
+    },
+  });
+}
