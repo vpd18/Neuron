@@ -9,10 +9,14 @@ import {
   SafeAreaView,
   Alert,
   Platform,
+  Modal,
+  Pressable,
+  ScrollView,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-// legacy FS import to keep writeAsStringAsync behavior for your current SDK
+
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Updates from "expo-updates";
@@ -24,7 +28,6 @@ const GROUPS_KEY = "@spendsense_groups";
 const ACTIVE_GROUP_KEY = "@spendsense_active_group_id";
 const THEME_KEY = "@spendsense_theme";
 const NOTIFY_KEY = "@spendsense_notifications";
-// any additional keys you might have used previously
 const PROFILE_KEY = "@spendsense_profile";
 
 export default function SettingsScreen() {
@@ -35,45 +38,174 @@ export default function SettingsScreen() {
   const [notifications, setNotifications] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  // ---------- PROFILE ----------
+  const [profile, setProfile] = useState(null);
+  const [profileEditVisible, setProfileEditVisible] = useState(false);
+
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editNote, setEditNote] = useState("");
+
+  const rawUserName = profile?.name?.trim();
+  const CURRENT_USER_NAME = rawUserName && rawUserName.length ? rawUserName : "You";
+
+  // ---------- STATS STATES ----------
+  const [statsModalVisible, setStatsModalVisible] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [stats, setStats] = useState({
+    personalThisMonth: 0,
+    groupThisMonth: 0,
+    totalThisMonth: 0,
+    personalAllTime: 0,
+    groupAllTime: 0,
+    totalAllTime: 0,
+  });
+
   useEffect(() => {
-    console.log("[Settings] mounted");
     loadNotify();
+    loadProfile();
   }, []);
 
   const loadNotify = async () => {
     try {
       const savedNotify = await AsyncStorage.getItem(NOTIFY_KEY);
-      console.log("[Settings] loadNotify ->", savedNotify);
       setNotifications(savedNotify === null ? true : savedNotify === "true");
     } catch (e) {
       console.error("[Settings] loadNotify error", e);
     }
   };
 
-  const handleToggleTheme = async (value) => {
-    console.log("[Settings] handleToggleTheme ->", value);
+  const loadProfile = async () => {
     try {
-      // update global theme (ThemeProvider will persist)
+      const raw = await AsyncStorage.getItem(PROFILE_KEY);
+      if (raw) {
+        setProfile(JSON.parse(raw));
+      }
+    } catch (e) {
+      console.warn("[Settings] profile load error", e);
+    }
+  };
+
+  const handleToggleTheme = (value) => {
+    try {
       toggleTheme(value);
     } catch (e) {
-      console.error("[Settings] handleToggleTheme error", e);
       Alert.alert("Error", "Could not toggle theme.");
     }
   };
 
   const toggleNotifications = async (value) => {
-    console.log("[Settings] toggleNotifications ->", value);
     try {
       setNotifications(value);
       await AsyncStorage.setItem(NOTIFY_KEY, value ? "true" : "false");
     } catch (e) {
-      console.error("[Settings] toggleNotifications error", e);
       Alert.alert("Error", "Could not save notification preference.");
     }
   };
 
+  // ---------- DATE HELPERS ----------
+  const getMonthKey = (date) => {
+    const d = new Date(date);
+    return `${d.getFullYear()}-${d.getMonth() + 1}`;
+  };
+  const getCurrentMonthKey = () => getMonthKey(new Date());
+
+  // ---------- TRACK EXPENSES ----------
+  const handleOpenStats = async () => {
+    setStatsLoading(true);
+    try {
+      // PERSONAL
+      let personal = [];
+      const personalJson = await AsyncStorage.getItem(PERSONAL_KEY);
+      if (personalJson) personal = JSON.parse(personalJson);
+
+      const currentMonthKey = getCurrentMonthKey();
+
+      let personalAllTime = 0;
+      let personalThisMonth = 0;
+
+      personal.forEach((e) => {
+        const amount = Number(e.amount) || 0;
+        personalAllTime += amount;
+
+        if (e.date) {
+          const [day, month, year] = e.date.split("/");
+          const d = new Date(Number(year), Number(month) - 1, Number(day));
+          if (getMonthKey(d) === currentMonthKey) {
+            personalThisMonth += amount;
+          }
+        }
+      });
+
+      // GROUP SHARE (based on profile name)
+      let groups = [];
+      const groupsJson = await AsyncStorage.getItem(GROUPS_KEY);
+      if (groupsJson) groups = JSON.parse(groupsJson);
+
+      const nameLower = rawUserName ? rawUserName.toLowerCase() : null;
+
+      let groupAllTime = 0;
+      let groupThisMonth = 0;
+
+      if (nameLower) {
+        groups.forEach((g) => {
+          const members = g.members || [];
+          const expenses = g.expenses || [];
+
+          const userIds = members
+            .filter((m) => m.name?.toLowerCase() === nameLower)
+            .map((m) => m.id);
+
+          if (!userIds.length) return;
+
+          expenses.forEach((exp) => {
+            const participants = exp.participantIds || [];
+            if (!participants.length) return;
+
+            let perHead = exp.splits?.length
+              ? exp.splits[0].share
+              : (exp.amount || 0) / participants.length;
+
+            const countUser = participants.filter((id) =>
+              userIds.includes(id)
+            ).length;
+            if (!countUser) return;
+
+            const share = perHead * countUser;
+
+            const createdAt = exp.createdAt || new Date().toISOString();
+            const expMonthKey = getMonthKey(createdAt);
+
+            groupAllTime += share;
+            if (expMonthKey === currentMonthKey) groupThisMonth += share;
+          });
+        });
+      }
+
+      const totalAllTime = personalAllTime + groupAllTime;
+      const totalThisMonth = personalThisMonth + groupThisMonth;
+
+      setStats({
+        personalThisMonth,
+        groupThisMonth,
+        totalThisMonth,
+        personalAllTime,
+        groupAllTime,
+        totalAllTime,
+      });
+
+      setStatsModalVisible(true);
+    } catch (e) {
+      console.error("Stats error", e);
+      Alert.alert("Error", "Unable to compute stats.");
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // ---------- EXPORT ----------
   const handleExportData = async () => {
-    console.log("[Settings] handleExportData");
     setBusy(true);
     try {
       const personal = await AsyncStorage.getItem(PERSONAL_KEY);
@@ -89,51 +221,39 @@ export default function SettingsScreen() {
 
       const jsonString = JSON.stringify(exportData, null, 2);
 
-      // Web fallback: use browser download
       if (Platform.OS === "web") {
-        try {
-          const blob = new Blob([jsonString], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `spendsense-export-${new Date().toISOString()}.json`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          Alert.alert("Export complete", "Downloaded JSON file (web). Check your downloads.");
-          console.log("[Settings] export -> downloaded (web)");
-        } catch (e) {
-          console.error("[Settings] web export error", e);
-          Alert.alert("Error", "Web export failed. See console.");
-        } finally {
-          setBusy(false);
-        }
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `spendsense-export-${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        Alert.alert("Export complete", "Downloaded JSON file.");
+        setBusy(false);
         return;
       }
 
-      // Native: write to documentDirectory (or fallback to cacheDirectory)
-      const filename = `spendsense-export-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      const filename = `spendsense-export-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.json`;
+
       const dir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-      if (!dir) {
-        console.warn("[Settings] FileSystem.documentDirectory is null. Using cacheDirectory.");
-      }
-      const fileUri = (dir || FileSystem.cacheDirectory) + filename;
+      const fileUri = dir + filename;
 
-      // Using legacy import ensures writeAsStringAsync is available in your environment
       await FileSystem.writeAsStringAsync(fileUri, jsonString);
-      const info = await FileSystem.getInfoAsync(fileUri);
 
-      Alert.alert("Export complete", `Saved to: ${fileUri}\nExists: ${info.exists}`);
-      console.log("[Settings] export saved ->", fileUri, info);
+      Alert.alert("Export complete", `Saved to: ${fileUri}`);
     } catch (e) {
-      console.error("[Settings] export error", e);
-      Alert.alert("Error", "Failed to export data. See console for details.");
+      Alert.alert("Error", "Failed to export data.");
     } finally {
       setBusy(false);
     }
   };
 
+  // ---------- RESET ----------
   const confirmResetData = () => {
     Alert.alert(
       "Reset all data?",
@@ -145,176 +265,495 @@ export default function SettingsScreen() {
     );
   };
 
-  // Robust reset: remove all @spendsense* keys + explicit keys, then reload app
   const handleResetData = async () => {
-    console.log("[Settings] handleResetData (start)");
     setBusy(true);
     try {
-      // 1) List all keys
       const allKeys = await AsyncStorage.getAllKeys();
-      console.log("[Settings] all AsyncStorage keys BEFORE reset:", allKeys);
-
-      // 2) Collect keys with prefix @spendsense
-      const spendKeys = allKeys.filter((k) => k && k.startsWith("@spendsense"));
-      // include known extra keys (profile etc.)
+      const spendKeys = allKeys.filter((k) => k.startsWith("@spendsense"));
       const extras = [PROFILE_KEY];
-      const keysToRemove = Array.from(new Set([...spendKeys, ...extras]));
+      const toRemove = [...new Set([...spendKeys, ...extras])];
 
-      if (keysToRemove.length > 0) {
-        console.log("[Settings] removing keys:", keysToRemove);
-        await AsyncStorage.multiRemove(keysToRemove);
-      } else {
-        console.log("[Settings] no @spendsense keys found to remove");
-      }
+      await AsyncStorage.multiRemove(toRemove);
+      await AsyncStorage.multiRemove([
+        PERSONAL_KEY,
+        GROUPS_KEY,
+        ACTIVE_GROUP_KEY,
+        THEME_KEY,
+        NOTIFY_KEY,
+      ]);
 
-      // 3) Also remove explicit keys defensively
-      const explicit = [PERSONAL_KEY, GROUPS_KEY, ACTIVE_GROUP_KEY, THEME_KEY, NOTIFY_KEY];
-      console.log("[Settings] also removing explicit keys (if any):", explicit);
-      await AsyncStorage.multiRemove(explicit);
-
-      // 4) Reset local UI state
       setNotifications(true);
-      try {
-        // request ThemeProvider to reset to dark (if toggleTheme accepts boolean)
-        toggleTheme(true);
-      } catch (e) {
-        console.warn("[Settings] toggleTheme during reset failed", e);
-      }
+      toggleTheme(true);
 
-      // 5) Inform user and reload so screens re-read storage
-      Alert.alert(
-        "Done",
-        "All SpendSense data has been cleared. The app will reload to apply changes.",
-        [
-          {
-            text: "OK",
-            onPress: async () => {
-              try {
-                if (Updates && Updates.reloadAsync) {
-                  console.log("[Settings] reloading app via Updates.reloadAsync()");
-                  await Updates.reloadAsync();
-                  return;
-                }
-              } catch (e) {
-                console.warn("[Settings] Updates.reloadAsync failed", e);
-              }
-
-              // fallback: replace route to root to force remounts
-              try {
-                console.log("[Settings] fallback: replacing route to '/'");
-                router.replace("/");
-              } catch (e) {
-                console.warn("[Settings] router.replace fallback failed", e);
-                Alert.alert(
-                  "Restart required",
-                  "Please fully close and re-open the app to complete reset."
-                );
-              }
-            },
+      Alert.alert("Done", "Data cleared. App will reload.", [
+        {
+          text: "OK",
+          onPress: async () => {
+            try {
+              await Updates.reloadAsync();
+            } catch {
+              router.replace("/");
+            }
           },
-        ]
-      );
-
-      console.log("[Settings] handleResetData (done)");
+        },
+      ]);
     } catch (e) {
-      console.error("[Settings] reset error", e);
-      Alert.alert("Error", "Failed to reset data. See console.");
+      Alert.alert("Error", "Reset failed.");
     } finally {
       setBusy(false);
     }
   };
 
-  // Profile card press: navigate to /profile (not in tab bar)
-  const openProfile = () => {
-    router.push("/profile");
+  // ---------- PROFILE EDIT HELPERS ----------
+  const openProfileEditor = () => {
+    setEditName(profile?.name || "");
+    setEditEmail(profile?.email || "");
+    setEditPhone(profile?.phone || "");
+    setEditNote(profile?.note || "");
+    setProfileEditVisible(true);
+  };
+
+  const saveProfileInsideSettings = async () => {
+    try {
+      const payload = {
+        name: editName.trim(),
+        email: editEmail.trim(),
+        phone: editPhone.trim(),
+        note: editNote.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(payload));
+      setProfile(payload);
+      setProfileEditVisible(false);
+      Alert.alert("Saved", "Your profile has been updated.");
+    } catch (e) {
+      console.error("[Settings] profile save error", e);
+      Alert.alert("Error", "Failed to save profile.");
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.screenTitle}>Settings</Text>
-        <Text style={styles.screenSubtitle}>Personalize your SpendSense experience</Text>
-      </View>
-
-      {/* Profile (clickable) */}
-      <TouchableOpacity style={styles.profileCard} onPress={openProfile} activeOpacity={0.8}>
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={22} color={palette.TEXT} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 50 }}>
+        <View style={styles.headerRow}>
+          <Text style={styles.screenTitle}>Settings</Text>
+          <Text style={styles.screenSubtitle}>
+            Personalize your SpendSense experience
+          </Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.profileName}>You</Text>
-          <Text style={styles.profileMeta}>Spend smarter, live better</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
-      </TouchableOpacity>
 
-      {/* Preferences */}
-      <Text style={styles.sectionTitle}>Preferences</Text>
+        {/* ---- TRACK EXPENSES CARD ---- */}
+        <TouchableOpacity
+          style={styles.profileCard}
+          onPress={handleOpenStats}
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={22} color={palette.TEXT} />
+          </View>
 
-      <View style={styles.settingRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.settingLabel}>Dark mode</Text>
-          <Text style={styles.settingDescription}>Always use the dark theme in the app.</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.profileName}>{CURRENT_USER_NAME}</Text>
+            <Text style={styles.profileMeta}>
+              Tap to track your total expenses
+            </Text>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              backgroundColor: palette.PRIMARY,
+              borderRadius: 999,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+            }}
+          >
+            <Ionicons name="stats-chart-outline" size={16} color="#fff" />
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: "600",
+                marginLeft: 4,
+              }}
+            >
+              Track
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* ---- PREFERENCES ---- */}
+        <Text style={styles.sectionTitle}>Preferences</Text>
+
+        <View style={styles.settingRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingLabel}>Dark mode</Text>
+            <Text style={styles.settingDescription}>
+              Always use the dark theme in the app.
+            </Text>
+          </View>
+          <Switch
+            value={isDark}
+            onValueChange={handleToggleTheme}
+            thumbColor={isDark ? "#fff" : "#ccc"}
+            trackColor={{ true: palette.PRIMARY, false: "#4B5563" }}
+            disabled={busy}
+          />
         </View>
-        <Switch
-          value={isDark}
-          onValueChange={handleToggleTheme}
-          thumbColor={isDark ? "#fff" : "#ccc"}
-          trackColor={{ true: palette.PRIMARY, false: "#4B5563" }}
+
+        <View style={styles.settingRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingLabel}>Notifications</Text>
+            <Text style={styles.settingDescription}>
+              Get reminders about your spending.
+            </Text>
+          </View>
+          <Switch
+            value={notifications}
+            onValueChange={toggleNotifications}
+            thumbColor={notifications ? "#fff" : "#ccc"}
+            trackColor={{ true: palette.PRIMARY, false: "#4B5563" }}
+            disabled={busy}
+          />
+        </View>
+
+        {/* ---- PROFILE SECTION ---- */}
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Profile</Text>
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={openProfileEditor}
           disabled={busy}
-        />
-      </View>
+        >
+          <View style={styles.linkIcon}>
+            <Ionicons name="create-outline" size={18} color={palette.TEXT} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingLabel}>Edit profile</Text>
+            <Text style={styles.settingDescription}>
+              Change your name, email & phone number.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
+        </TouchableOpacity>
 
-      <View style={styles.settingRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.settingLabel}>Notifications</Text>
-          <Text style={styles.settingDescription}>Get reminders about your spending.</Text>
-        </View>
-        <Switch
-          value={notifications}
-          onValueChange={toggleNotifications}
-          thumbColor={notifications ? "#fff" : "#ccc"}
-          trackColor={{ true: palette.PRIMARY, false: "#4B5563" }}
+        {/* ---- DATA ---- */}
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Data</Text>
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={handleExportData}
           disabled={busy}
-        />
-      </View>
+        >
+          <View style={styles.linkIcon}>
+            <Ionicons
+              name="cloud-upload-outline"
+              size={18}
+              color={palette.TEXT}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingLabel}>Export data</Text>
+            <Text style={styles.settingDescription}>
+              Save all your SpendSense data as a JSON file.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
+        </TouchableOpacity>
 
-      {/* Data Section */}
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Data</Text>
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={confirmResetData}
+          disabled={busy}
+        >
+          <View style={[styles.linkIcon, { borderColor: "#F97316" }]}>
+            <Ionicons name="trash-bin-outline" size={18} color="#F97316" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.settingLabel, { color: "#F97316" }]}>
+              Reset all data
+            </Text>
+            <Text style={styles.settingDescription}>
+              Permanently delete all expenses and groups.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
+        </TouchableOpacity>
 
-      <TouchableOpacity style={styles.linkRow} onPress={handleExportData} disabled={busy}>
-        <View style={styles.linkIcon}>
-          <Ionicons name="cloud-upload-outline" size={18} color={palette.TEXT} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.settingLabel}>Export data</Text>
-          <Text style={styles.settingDescription}>Save all your SpendSense data as a JSON file.</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
-      </TouchableOpacity>
+        {/* ---- ABOUT ---- */}
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>About</Text>
 
-      <TouchableOpacity style={styles.linkRow} onPress={confirmResetData} disabled={busy}>
-        <View style={[styles.linkIcon, { borderColor: "#F97316" }]}>
-          <Ionicons name="trash-bin-outline" size={18} color="#F97316" />
+        <View style={styles.footerTextContainer}>
+          <Text style={styles.footerText}>SpendSense • v0.2</Text>
+          <Text style={styles.footerSubText}>
+            Built with Expo, React Native & Expo Router
+          </Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.settingLabel, { color: "#F97316" }]}>Reset all data</Text>
-          <Text style={styles.settingDescription}>Permanently delete all expenses and groups.</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
-      </TouchableOpacity>
+      </ScrollView>
 
-      {/* About */}
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>About</Text>
-      <View style={styles.footerTextContainer}>
-        <Text style={styles.footerText}>SpendSense • v0.2</Text>
-        <Text style={styles.footerSubText}>Built with Expo, React Native & Expo Router</Text>
-      </View>
+      {/* ---------- STATS MODAL ---------- */}
+      <Modal
+        visible={statsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStatsModalVisible(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "flex-end",
+          }}
+          onPress={() => setStatsModalVisible(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: palette.CARD,
+              padding: 16,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderWidth: 1,
+              borderColor: palette.BORDER,
+            }}
+            onPress={() => {}}
+          >
+            {/* HEADER */}
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 16,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 999,
+                    backgroundColor: palette.CARD_ELEVATED,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{ color: palette.TEXT, fontWeight: "700" }}
+                  >
+                    {CURRENT_USER_NAME[0]?.toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ marginLeft: 8 }}>
+                  <Text
+                    style={{
+                      color: palette.TEXT,
+                      fontSize: 16,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {CURRENT_USER_NAME}'s expenses
+                  </Text>
+                  <Text style={{ color: palette.MUTED, fontSize: 12 }}>
+                    Personal + group share overview
+                  </Text>
+                </View>
+              </View>
+              <Pressable onPress={() => setStatsModalVisible(false)}>
+                <Ionicons name="close" size={22} color={palette.MUTED} />
+              </Pressable>
+            </View>
+
+            {statsLoading ? (
+              <Text
+                style={{
+                  color: palette.MUTED,
+                  textAlign: "center",
+                  paddingVertical: 20,
+                }}
+              >
+                Calculating...
+              </Text>
+            ) : (
+              <>
+                {/* THIS MONTH */}
+                <View style={styles.statsCard}>
+                  <Text style={styles.statsCardLabel}>This month</Text>
+                  <Text style={styles.statsCardValue}>
+                    ₹ {stats.totalThisMonth.toFixed(0)}
+                  </Text>
+
+                  <View style={styles.statsRow}>
+                    <Text style={styles.statsRowLabel}>Personal</Text>
+                    <Text style={styles.statsRowValue}>
+                      ₹ {stats.personalThisMonth.toFixed(0)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statsRow}>
+                    <Text style={styles.statsRowLabel}>
+                      Groups (your share)
+                    </Text>
+                    <Text style={styles.statsRowValue}>
+                      ₹ {stats.groupThisMonth.toFixed(0)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ALL TIME */}
+                <View style={styles.statsCard}>
+                  <Text style={styles.statsCardLabel}>All time</Text>
+                  <Text style={styles.statsCardValue}>
+                    ₹ {stats.totalAllTime.toFixed(0)}
+                  </Text>
+
+                  <View style={styles.statsRow}>
+                    <Text style={styles.statsRowLabel}>Personal</Text>
+                    <Text style={styles.statsRowValue}>
+                      ₹ {stats.personalAllTime.toFixed(0)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statsRow}>
+                    <Text style={styles.statsRowLabel}>
+                      Groups (your share)
+                    </Text>
+                    <Text style={styles.statsRowValue}>
+                      ₹ {stats.groupAllTime.toFixed(0)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text
+                  style={{
+                    color: palette.MUTED,
+                    fontSize: 11,
+                    textAlign: "center",
+                    marginTop: 6,
+                  }}
+                >
+                  Group share is calculated based on your saved profile name.
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ---------- PROFILE EDIT MODAL ---------- */}
+      <Modal
+        visible={profileEditVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setProfileEditVisible(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "flex-end",
+          }}
+          onPress={() => setProfileEditVisible(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: palette.CARD,
+              padding: 16,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderWidth: 1,
+              borderColor: palette.BORDER,
+            }}
+            onPress={() => {}}
+          >
+            <Text
+              style={{
+                color: palette.TEXT,
+                fontSize: 16,
+                fontWeight: "700",
+                marginBottom: 12,
+              }}
+            >
+              Edit profile
+            </Text>
+
+            {/* Name */}
+            <Text style={{ color: palette.MUTED, fontSize: 12 }}>Name</Text>
+            <TextInput
+              value={editName}
+              onChangeText={setEditName}
+              style={styles.input}
+              placeholder="Your name"
+              placeholderTextColor={palette.MUTED}
+            />
+
+            {/* Email */}
+            <Text
+              style={{ color: palette.MUTED, fontSize: 12, marginTop: 10 }}
+            >
+              Email
+            </Text>
+            <TextInput
+              value={editEmail}
+              onChangeText={setEditEmail}
+              style={styles.input}
+              placeholder="you@example.com"
+              placeholderTextColor={palette.MUTED}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+
+            {/* Phone */}
+            <Text
+              style={{ color: palette.MUTED, fontSize: 12, marginTop: 10 }}
+            >
+              Phone
+            </Text>
+            <TextInput
+              value={editPhone}
+              onChangeText={setEditPhone}
+              style={styles.input}
+              placeholder="+91 98765 43210"
+              placeholderTextColor={palette.MUTED}
+              keyboardType="phone-pad"
+            />
+
+            {/* Note */}
+            <Text
+              style={{ color: palette.MUTED, fontSize: 12, marginTop: 10 }}
+            >
+              Note
+            </Text>
+            <TextInput
+              value={editNote}
+              onChangeText={setEditNote}
+              style={[styles.input, { minHeight: 70, textAlignVertical: "top" }]}
+              placeholder="Short bio"
+              placeholderTextColor={palette.MUTED}
+              multiline
+            />
+
+            <TouchableOpacity
+              style={{
+                backgroundColor: palette.PRIMARY,
+                paddingVertical: 12,
+                borderRadius: 12,
+                alignItems: "center",
+                marginTop: 16,
+              }}
+              onPress={saveProfileInsideSettings}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                Save changes
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// dynamic styles factory so UI follows palette
+// ---------- DYNAMIC STYLES ----------
 function makeStyles(p) {
   return StyleSheet.create({
     container: {
@@ -344,7 +783,7 @@ function makeStyles(p) {
       padding: 12,
       marginBottom: 18,
       borderWidth: 1,
-      borderColor: p.BORDER || "#1F2937",
+      borderColor: p.BORDER,
     },
     avatar: {
       width: 40,
@@ -380,7 +819,7 @@ function makeStyles(p) {
       padding: 12,
       marginBottom: 10,
       borderWidth: 1,
-      borderColor: p.BORDER || "#111827",
+      borderColor: p.BORDER,
     },
     settingLabel: {
       color: p.TEXT,
@@ -391,7 +830,6 @@ function makeStyles(p) {
       color: p.MUTED,
       fontSize: 12,
       marginTop: 2,
-      maxWidth: "95%",
     },
     linkRow: {
       flexDirection: "row",
@@ -401,14 +839,14 @@ function makeStyles(p) {
       padding: 12,
       marginBottom: 8,
       borderWidth: 1,
-      borderColor: p.BORDER || "#111827",
+      borderColor: p.BORDER,
     },
     linkIcon: {
       width: 32,
       height: 32,
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: p.BORDER || "#1F2937",
+      borderColor: p.BORDER,
       backgroundColor: p.CARD,
       justifyContent: "center",
       alignItems: "center",
@@ -425,6 +863,54 @@ function makeStyles(p) {
       color: p.MUTED,
       fontSize: 11,
       marginTop: 2,
+    },
+
+    // Stats Card
+    statsCard: {
+      backgroundColor: p.CARD_ELEVATED,
+      borderRadius: 18,
+      padding: 12,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: p.BORDER,
+    },
+    statsCardLabel: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    statsCardValue: {
+      color: p.TEXT,
+      fontSize: 22,
+      fontWeight: "800",
+      marginTop: 4,
+      marginBottom: 8,
+    },
+    statsRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginTop: 4,
+    },
+    statsRowLabel: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    statsRowValue: {
+      color: p.TEXT,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+
+    // Shared input style (profile edit modal)
+    input: {
+      backgroundColor: p.CARD,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: p.BORDER,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: p.TEXT,
+      fontSize: 14,
+      marginTop: 4,
     },
   });
 }
