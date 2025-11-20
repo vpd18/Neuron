@@ -1,86 +1,55 @@
-# Neuron
-Neuron – Smart Expense Tracker
+# Neuron — Modern Personal & Group Expense Tracker
+Neuron is a clean, fast, and analytics-driven expense tracker built with Expo + React Native. It helps users manage personal and group spending through smart splits, visual insights, and simple settlements.
 
-Neuron (formerly Speedsense) is a modern personal and group expense tracker built with Expo and React Native. It focuses on fast recording, clean UI, powerful analytics, and simple settlement between friends or groups.
+## Overview
+Neuron enables daily expense tracking, group expense management, and financial summaries through charts. It supports equal/custom splits, settlements, category analytics, and a refined settings dashboard.
 
-Features
-Personal Expenses
+## Features
 
-Add, edit, and delete personal expenses
+### Personal Expenses
+- Add, edit, and delete personal expenses
+- Category-based organization (Food, Travel, Bills, etc.)
+- Monthly/weekly summaries
+- Fast-entry interface
 
-Categorize expenses (Food, Travel, Bills, Shopping, etc.)
+### Group Expenses
+- Create and manage groups (Trips, Friends, Events)
+- Split using equal or custom amounts (percentage split planned)
+- Track balances and settlements
+- "Mark as Paid" with automatic adjustments
+- Group-level summary and settlement history
 
-Monthly and weekly summaries
+### Analytics & Insights
+- Category-wise pie chart
+- Monthly spending trends
+- Personal vs Group breakdown
+- Filters by date range, category, and type
+- Top category and total spend overview
 
-Group Expenses
+### Settings
+- User profile and username management
+- Currency selection (default: INR)
+- Expense tracking dashboard with charts
+- Dark/Light mode (planned)
+- Data export (CSV/PDF) coming soon
+- Backup & cloud sync (future)
 
-Create groups (Trips, Friends, Family, Projects, etc.)
+### UX & Performance
+- Expo Router navigation
+- Optimized layouts for Android
+- Smooth transitions and loaders
+- Clean empty states
 
-Split expenses using:
+## Tech Stack
+- Expo (Managed Workflow)
+- React Native
+- Expo Router
+- Context API + Custom Hooks
+- Async Storage
+- Victory Native / Recharts (Charts)
+- ESLint + Prettier
 
-Equal split
-
-Custom amount split
-
-Percentage split (upcoming)
-
-Track balances and owed amounts
-
-Mark as Paid / Settle Up
-
-Group-level summary view
-
-Analytics and Insights
-
-Pie chart showing category-wise breakdown
-
-Monthly spending trends
-
-Total expenses and average daily spend
-
-Personal vs Group analysis
-
-Filters: Date range, Category, Personal only, Group only
-
-Settings
-
-Username and profile settings
-
-Currency selection (default: INR)
-
-Theme preferences
-
-"Track Expenses" screen with charts and insights
-
-Data export (upcoming)
-
-UI and UX
-
-Expo Router–based navigation
-
-Responsive layout
-
-Empty states and improved design polish
-
-Optimized for Android devices
-
-Tech Stack
-
-Expo (Managed Workflow)
-
-React Native
-
-Expo Router
-
-React Context and Hooks
-
-Async Storage
-
-Victory Native / Recharts for graphs
-
-ESLint and Prettier (recommended)
-
-Project Structure
+## Project Structure
 spendsense/
   app/
     (tabs)/
@@ -95,53 +64,39 @@ spendsense/
   package.json
   app.json
 
-Installation and Setup
-
-Clone the repository:
-
+## Installation
 git clone https://github.com/vpd18/Neuron.git
 cd Neuron/spendsense
-
-
-Install dependencies:
-
 npm install
-
-
-Start the project:
-
 npx expo start
 
+Run via:
+- Tunnel (physical device)
+- Android emulator
+- Web browser
 
-Select:
+## Roadmap
+In Progress:
+- Category improvements
+- Monthly trends
+- Custom percentage splits
+- Settlement receipts
 
-Tunnel for physical device
+Upcoming:
+- Recurring expenses
+- CSV/PDF export
+- Cloud backup
+- Pie Chart Analysis
+- Theme customization
 
-Android for emulator
+Future:
+- Friend invites & sharing
+- AI-powered insights
+- Multi-currency support
 
-Web for debugging
+## Contributing
 
-Roadmap
-Upcoming Features
+Contributions are welcome. For major changes, open an issue to discuss proposed updates.
 
-Recurring expenses
-
-Cloud sync (Supabase or Firebase)
-
-Export to CSV or PDF
-
-Notifications for pending settlements
-
-OCR bill scanning
-
-Secure backups
-
-Themes and deeper analytics
-
-Future Plans
-
-Friends sharing via links or invites
-
-AI-based spending insights
-
-Multi-currency smart conversion
+## License
+MIT License.
