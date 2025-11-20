@@ -48,7 +48,8 @@ export default function SettingsScreen() {
   const [editNote, setEditNote] = useState("");
 
   const rawUserName = profile?.name?.trim();
-  const CURRENT_USER_NAME = rawUserName && rawUserName.length ? rawUserName : "You";
+  const CURRENT_USER_NAME =
+    rawUserName && rawUserName.length ? rawUserName : "You";
 
   // ---------- STATS STATES ----------
   const [statsModalVisible, setStatsModalVisible] = useState(false);
@@ -60,6 +61,8 @@ export default function SettingsScreen() {
     personalAllTime: 0,
     groupAllTime: 0,
     totalAllTime: 0,
+    monthlyCategories: [], // [{ category, total }]
+    lifetimeByMonth: [], // [{ key, label, total }]
   });
 
   useEffect(() => {
@@ -111,7 +114,13 @@ export default function SettingsScreen() {
   };
   const getCurrentMonthKey = () => getMonthKey(new Date());
 
-  // ---------- TRACK EXPENSES ----------
+  const getMonthKeyPadded = (date) => {
+    const d = new Date(date);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    return `${d.getFullYear()}-${month}`; // YYYY-MM
+  };
+
+  // ---------- TRACK EXPENSES (WITH CATEGORY + LIFETIME GRAPH) ----------
   const handleOpenStats = async () => {
     setStatsLoading(true);
     try {
@@ -125,16 +134,32 @@ export default function SettingsScreen() {
       let personalAllTime = 0;
       let personalThisMonth = 0;
 
+      const monthlyCategoryMap = {}; // category => total this month (personal + group share)
+      const lifetimeMonthMap = {}; // "YYYY-MM" => total (all time)
+
       personal.forEach((e) => {
         const amount = Number(e.amount) || 0;
         personalAllTime += amount;
 
-        if (e.date) {
-          const [day, month, year] = e.date.split("/");
-          const d = new Date(Number(year), Number(month) - 1, Number(day));
-          if (getMonthKey(d) === currentMonthKey) {
-            personalThisMonth += amount;
-          }
+        if (!e.date) return;
+
+        const [day, month, year] = e.date.split("/");
+        const d = new Date(Number(year), Number(month) - 1, Number(day));
+        if (isNaN(d)) return;
+
+        const simpleKey = getMonthKey(d);
+        const paddedKey = getMonthKeyPadded(d);
+
+        // Lifetime (personal)
+        lifetimeMonthMap[paddedKey] =
+          (lifetimeMonthMap[paddedKey] || 0) + amount;
+
+        // This month (personal)
+        if (simpleKey === currentMonthKey) {
+          personalThisMonth += amount;
+          const cat = e.category || "Personal (uncategorized)";
+          monthlyCategoryMap[cat] =
+            (monthlyCategoryMap[cat] || 0) + amount;
         }
       });
 
@@ -161,11 +186,19 @@ export default function SettingsScreen() {
 
           expenses.forEach((exp) => {
             const participants = exp.participantIds || [];
-            if (!participants.length) return;
+            const amount = Number(exp.amount) || 0;
+            if (!participants.length || !amount) return;
 
-            let perHead = exp.splits?.length
-              ? exp.splits[0].share
-              : (exp.amount || 0) / participants.length;
+            // this is close to your original logic, but a bit safer
+            let perHead;
+            if (Array.isArray(exp.splits) && exp.splits.length) {
+              // assume same share per participant from first split
+              perHead =
+                Number(exp.splits[0].share ?? exp.splits[0].amount) ||
+                amount / participants.length;
+            } else {
+              perHead = amount / participants.length;
+            }
 
             const countUser = participants.filter((id) =>
               userIds.includes(id)
@@ -175,16 +208,45 @@ export default function SettingsScreen() {
             const share = perHead * countUser;
 
             const createdAt = exp.createdAt || new Date().toISOString();
-            const expMonthKey = getMonthKey(createdAt);
+            const d = new Date(createdAt);
+            if (isNaN(d)) return;
+
+            const simpleKey = getMonthKey(d);
+            const paddedKey = getMonthKeyPadded(d);
+
+            // Lifetime (group share)
+            lifetimeMonthMap[paddedKey] =
+              (lifetimeMonthMap[paddedKey] || 0) + share;
 
             groupAllTime += share;
-            if (expMonthKey === currentMonthKey) groupThisMonth += share;
+
+            // This month (group share)
+            if (simpleKey === currentMonthKey) {
+              groupThisMonth += share;
+              const cat =
+                exp.category ||
+                (exp.title ? `Group: ${exp.title}` : "Group (uncategorized)");
+              monthlyCategoryMap[cat] =
+                (monthlyCategoryMap[cat] || 0) + share;
+            }
           });
         });
       }
 
       const totalAllTime = personalAllTime + groupAllTime;
       const totalThisMonth = personalThisMonth + groupThisMonth;
+
+      const monthlyCategories = Object.entries(monthlyCategoryMap)
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total);
+
+      const lifetimeByMonth = Object.entries(lifetimeMonthMap)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, total]) => {
+          const [year, month] = key.split("-");
+          const label = `${month}/${String(year).slice(-2)}`; // e.g. 03/25
+          return { key, label, total };
+        });
 
       setStats({
         personalThisMonth,
@@ -193,6 +255,8 @@ export default function SettingsScreen() {
         personalAllTime,
         groupAllTime,
         totalAllTime,
+        monthlyCategories,
+        lifetimeByMonth,
       });
 
       setStatsModalVisible(true);
@@ -492,7 +556,7 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      {/* ---------- STATS MODAL ---------- */}
+            {/* ---------- STATS MODAL ---------- */}
       <Modal
         visible={statsModalVisible}
         transparent
@@ -510,131 +574,263 @@ export default function SettingsScreen() {
           <Pressable
             style={{
               backgroundColor: palette.CARD,
-              padding: 16,
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              paddingBottom: 8,
               borderTopLeftRadius: 24,
               borderTopRightRadius: 24,
               borderWidth: 1,
               borderColor: palette.BORDER,
+              maxHeight: "80%", // <= important
             }}
             onPress={() => {}}
           >
-            {/* HEADER */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginBottom: 16,
-              }}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 16 }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 999,
-                    backgroundColor: palette.CARD_ELEVATED,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text
-                    style={{ color: palette.TEXT, fontWeight: "700" }}
-                  >
-                    {CURRENT_USER_NAME[0]?.toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ marginLeft: 8 }}>
-                  <Text
-                    style={{
-                      color: palette.TEXT,
-                      fontSize: 16,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {CURRENT_USER_NAME}'s expenses
-                  </Text>
-                  <Text style={{ color: palette.MUTED, fontSize: 12 }}>
-                    Personal + group share overview
-                  </Text>
-                </View>
-              </View>
-              <Pressable onPress={() => setStatsModalVisible(false)}>
-                <Ionicons name="close" size={22} color={palette.MUTED} />
-              </Pressable>
-            </View>
-
-            {statsLoading ? (
-              <Text
+              {/* HEADER */}
+              <View
                 style={{
-                  color: palette.MUTED,
-                  textAlign: "center",
-                  paddingVertical: 20,
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 16,
                 }}
               >
-                Calculating...
-              </Text>
-            ) : (
-              <>
-                {/* THIS MONTH */}
-                <View style={styles.statsCard}>
-                  <Text style={styles.statsCardLabel}>This month</Text>
-                  <Text style={styles.statsCardValue}>
-                    ₹ {stats.totalThisMonth.toFixed(0)}
-                  </Text>
-
-                  <View style={styles.statsRow}>
-                    <Text style={styles.statsRowLabel}>Personal</Text>
-                    <Text style={styles.statsRowValue}>
-                      ₹ {stats.personalThisMonth.toFixed(0)}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 999,
+                      backgroundColor: palette.CARD_ELEVATED,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{ color: palette.TEXT, fontWeight: "700" }}
+                    >
+                      {CURRENT_USER_NAME[0]?.toUpperCase()}
                     </Text>
                   </View>
-
-                  <View style={styles.statsRow}>
-                    <Text style={styles.statsRowLabel}>
-                      Groups (your share)
+                  <View style={{ marginLeft: 8 }}>
+                    <Text
+                      style={{
+                        color: palette.TEXT,
+                        fontSize: 16,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {CURRENT_USER_NAME}'s expenses
                     </Text>
-                    <Text style={styles.statsRowValue}>
-                      ₹ {stats.groupThisMonth.toFixed(0)}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* ALL TIME */}
-                <View style={styles.statsCard}>
-                  <Text style={styles.statsCardLabel}>All time</Text>
-                  <Text style={styles.statsCardValue}>
-                    ₹ {stats.totalAllTime.toFixed(0)}
-                  </Text>
-
-                  <View style={styles.statsRow}>
-                    <Text style={styles.statsRowLabel}>Personal</Text>
-                    <Text style={styles.statsRowValue}>
-                      ₹ {stats.personalAllTime.toFixed(0)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.statsRow}>
-                    <Text style={styles.statsRowLabel}>
-                      Groups (your share)
-                    </Text>
-                    <Text style={styles.statsRowValue}>
-                      ₹ {stats.groupAllTime.toFixed(0)}
+                    <Text style={{ color: palette.MUTED, fontSize: 12 }}>
+                      Personal + group share overview
                     </Text>
                   </View>
                 </View>
+                <Pressable onPress={() => setStatsModalVisible(false)}>
+                  <Ionicons name="close" size={22} color={palette.MUTED} />
+                </Pressable>
+              </View>
 
+              {statsLoading ? (
                 <Text
                   style={{
                     color: palette.MUTED,
-                    fontSize: 11,
                     textAlign: "center",
-                    marginTop: 6,
+                    paddingVertical: 20,
                   }}
                 >
-                  Group share is calculated based on your saved profile name.
+                  Calculating...
                 </Text>
-              </>
-            )}
+              ) : (
+                <>
+                  {/* THIS MONTH */}
+                  <View style={styles.statsCard}>
+                    <Text style={styles.statsCardLabel}>This month</Text>
+                    <Text style={styles.statsCardValue}>
+                      ₹ {stats.totalThisMonth.toFixed(0)}
+                    </Text>
+
+                    <View style={styles.statsRow}>
+                      <Text style={styles.statsRowLabel}>Personal</Text>
+                      <Text style={styles.statsRowValue}>
+                        ₹ {stats.personalThisMonth.toFixed(0)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.statsRow}>
+                      <Text style={styles.statsRowLabel}>
+                        Groups (your share)
+                      </Text>
+                      <Text style={styles.statsRowValue}>
+                        ₹ {stats.groupThisMonth.toFixed(0)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* ALL TIME */}
+                  <View style={styles.statsCard}>
+                    <Text style={styles.statsCardLabel}>All time</Text>
+                    <Text style={styles.statsCardValue}>
+                      ₹ {stats.totalAllTime.toFixed(0)}
+                    </Text>
+
+                    <View style={styles.statsRow}>
+                      <Text style={styles.statsRowLabel}>Personal</Text>
+                      <Text style={styles.statsRowValue}>
+                        ₹ {stats.personalAllTime.toFixed(0)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.statsRow}>
+                      <Text style={styles.statsRowLabel}>
+                        Groups (your share)
+                      </Text>
+                      <Text style={styles.statsRowValue}>
+                        ₹ {stats.groupAllTime.toFixed(0)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* MONTHLY CATEGORY BREAKDOWN WITH COLOUR TAGS + BARS */}
+                  <View style={styles.statsCard}>
+                    <Text style={styles.statsCardLabel}>
+                      This month by category
+                    </Text>
+                    {stats.monthlyCategories.length === 0 ? (
+                      <Text style={styles.emptyNote}>
+                        No category-wise data for this month yet.
+                      </Text>
+                    ) : (
+                      (() => {
+                        const maxCat = Math.max(
+                          ...stats.monthlyCategories.map((c) => c.total)
+                        );
+                        const safeMax = maxCat || 1;
+                        const colorPalette = [
+                          palette.PRIMARY,
+                          "#22C55E",
+                          "#F97316",
+                          "#38BDF8",
+                          "#E11D48",
+                          "#A855F7",
+                        ];
+
+                        return stats.monthlyCategories.map((item, index) => {
+                          const ratio = item.total / safeMax;
+                          const widthPercent = 10 + ratio * 90;
+                          const color =
+                            colorPalette[index % colorPalette.length];
+                          const softColor = color + "33";
+
+                          return (
+                            <View key={item.category} style={styles.categoryItem}>
+                              <View style={styles.categoryHeaderRow}>
+                                <View
+                                  style={[
+                                    styles.categoryTag,
+                                    { backgroundColor: softColor },
+                                  ]}
+                                >
+                                  <View
+                                    style={[
+                                      styles.categoryDot,
+                                      { backgroundColor: color },
+                                    ]}
+                                  />
+                                  <Text style={styles.categoryTagText}>
+                                    {item.category}
+                                  </Text>
+                                </View>
+                                <Text style={styles.categoryAmount}>
+                                  ₹ {item.total.toFixed(0)}
+                                </Text>
+                              </View>
+                              <View style={styles.categoryBarTrack}>
+                                <View
+                                  style={[
+                                    styles.categoryBarFill,
+                                    {
+                                      width: `${widthPercent}%`,
+                                      backgroundColor: color,
+                                    },
+                                  ]}
+                                />
+                              </View>
+                            </View>
+                          );
+                        });
+                      })()
+                    )}
+                  </View>
+
+                  {/* LIFETIME MONTH-WISE "GRAPH" (HORIZONTAL SCROLL) */}
+                  <View style={styles.statsCard}>
+                    <Text style={styles.statsCardLabel}>
+                      Lifetime month-wise trends
+                    </Text>
+                    {stats.lifetimeByMonth.length === 0 ? (
+                      <Text style={styles.emptyNote}>
+                        Add some expenses to see your month-wise trends.
+                      </Text>
+                    ) : (
+                      <View style={styles.chartContainer}>
+                        {(() => {
+                          const max = Math.max(
+                            ...stats.lifetimeByMonth.map((m) => m.total)
+                          );
+                          const safeMax = max || 1;
+
+                          return (
+                            <ScrollView
+                              horizontal
+                              showsHorizontalScrollIndicator={false}
+                              contentContainerStyle={styles.barRow}
+                            >
+                              {stats.lifetimeByMonth.map((m) => {
+                                const h = (m.total / safeMax) * 140;
+                                return (
+                                  <View key={m.key} style={styles.barWrapper}>
+                                    <Text style={styles.barValue}>
+                                      ₹{m.total.toFixed(0)}
+                                    </Text>
+                                    <View
+                                      style={[
+                                        styles.bar,
+                                        {
+                                          height: h,
+                                          backgroundColor: palette.PRIMARY,
+                                        },
+                                      ]}
+                                    />
+                                    <Text style={styles.barLabel}>
+                                      {m.label}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </ScrollView>
+                          );
+                        })()}
+                      </View>
+                    )}
+                  </View>
+
+                  <Text
+                    style={{
+                      color: palette.MUTED,
+                      fontSize: 11,
+                      textAlign: "center",
+                      marginTop: 6,
+                    }}
+                  >
+                    Group share is calculated based on your saved profile name.
+                  </Text>
+                </>
+              )}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -877,6 +1073,7 @@ function makeStyles(p) {
     statsCardLabel: {
       color: p.MUTED,
       fontSize: 12,
+      marginBottom: 4,
     },
     statsCardValue: {
       color: p.TEXT,
@@ -898,6 +1095,88 @@ function makeStyles(p) {
       color: p.TEXT,
       fontSize: 13,
       fontWeight: "600",
+    },
+
+    emptyNote: {
+      color: p.MUTED,
+      fontSize: 12,
+      marginTop: 4,
+    },
+
+    // Category styles
+    categoryItem: {
+      marginTop: 8,
+    },
+    categoryHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    categoryTag: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 999,
+    },
+    categoryDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      marginRight: 6,
+    },
+    categoryTagText: {
+      color: p.TEXT,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    categoryAmount: {
+      color: p.TEXT,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    categoryBarTrack: {
+      width: "100%",
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: p.CARD,
+      marginTop: 4,
+      overflow: "hidden",
+    },
+    categoryBarFill: {
+      height: "100%",
+      borderRadius: 999,
+    },
+
+    // Lifetime chart
+    chartContainer: {
+      marginTop: 8,
+      height: 200,
+      justifyContent: "flex-end",
+    },
+    barRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      paddingRight: 4,
+    },
+    barWrapper: {
+      alignItems: "center",
+      marginHorizontal: 6,
+      minWidth: 40,
+    },
+    bar: {
+      width: 18,
+      borderRadius: 9,
+    },
+    barValue: {
+      fontSize: 10,
+      color: p.MUTED,
+      marginBottom: 4,
+    },
+    barLabel: {
+      marginTop: 4,
+      fontSize: 11,
+      color: p.MUTED,
     },
 
     // Shared input style (profile edit modal)
