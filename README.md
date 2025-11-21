@@ -1,4 +1,3 @@
-
 # Neuron — Modern Personal & Group Expense Tracker
 
 Neuron is a modern, fast, and analytics-driven expense tracker built with Expo + React Native. Designed for individuals and groups, Neuron simplifies daily spending, smart splits, settlements, and financial insights with a clean UI and smooth performance.
