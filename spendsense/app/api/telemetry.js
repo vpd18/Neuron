@@ -2,7 +2,7 @@
 
 const TELEMETRY_URL = "https://telemetry-api-iota.vercel.app/api/feedback";
 
-// ⚠️ Replace this with YOUR actual TMFCID if sir gives you a specific one
+
 const TMFCID = "TMFC006TN";
 
 /**
