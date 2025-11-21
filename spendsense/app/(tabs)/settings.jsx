@@ -20,7 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Updates from "expo-updates";
-import { useTheme } from "./theme";
+import { useTheme } from "../theme";
 
 // Storage keys
 const PERSONAL_KEY = "@spendsense_personal_expenses";
