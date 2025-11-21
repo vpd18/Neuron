@@ -16,6 +16,23 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "./theme";
+import { useFocusEffect } from "@react-navigation/native";
+
+import {
+  trackScreen,
+  trackGroupCreated,
+  trackGroupDeleted,
+  trackGroupOpened,
+  trackActiveGroupChanged,
+  trackMemberAdded,
+  trackMemberRemoved,
+  trackMemberEdited,
+  trackExpenseCreated,
+  trackExpenseUpdated,
+  trackExpenseDeleted,
+  trackExpenseSettled,
+  trackSettlementCreated,
+} from "./api/telemetryEvents";
 
 const GROUPS_KEY = "@spendsense_groups";
 const ACTIVE_GROUP_KEY = "@spendsense_active_group_id";
@@ -75,6 +92,13 @@ export default function GroupsScreen() {
   const [settleToMemberId, setSettleToMemberId] = useState(null);
   const [settleAmount, setSettleAmount] = useState("");
 
+  // Telemetry: screen view
+  useFocusEffect(
+    React.useCallback(() => {
+      trackScreen("Groups");
+    }, [])
+  );
+
   // Load groups + active group + profile on mount
   useEffect(() => {
     (async () => {
@@ -132,6 +156,7 @@ export default function GroupsScreen() {
     setActiveGroupId(groupId);
     try {
       await AsyncStorage.setItem(ACTIVE_GROUP_KEY, groupId);
+      trackActiveGroupChanged(groupId);
     } catch (e) {
       console.log("Error saving active group", e);
     }
@@ -171,6 +196,9 @@ export default function GroupsScreen() {
     const next = [newGroup, ...groups];
     setGroups(next);
     await saveGroups(next);
+
+    trackGroupCreated(newGroup);
+
     handleCloseCreateModal();
   };
 
@@ -194,6 +222,7 @@ export default function GroupsScreen() {
               setActiveGroupId(null);
               await AsyncStorage.removeItem(ACTIVE_GROUP_KEY);
             }
+            trackGroupDeleted(group);
           },
         },
       ]
@@ -234,6 +263,8 @@ export default function GroupsScreen() {
     setMemberName("");
     resetExpenseForm(withDefaults);
     setIsDetailsVisible(true);
+
+    trackGroupOpened(withDefaults);
   };
 
   const closeGroupDetails = () => {
@@ -269,6 +300,7 @@ export default function GroupsScreen() {
     if (selectedParticipantIds.length === 0) setSelectedParticipantIds(memberIds);
 
     await updateGroupInList(updatedGroup);
+    trackMemberAdded(updatedGroup, newMember);
   };
 
   const handleRemoveMember = (memberId) => {
@@ -311,6 +343,7 @@ export default function GroupsScreen() {
             });
 
             await updateGroupInList(updatedGroup);
+            trackMemberRemoved(updatedGroup, member);
           },
         },
       ]
@@ -335,6 +368,8 @@ export default function GroupsScreen() {
     const updatedGroup = { ...selectedGroup, members: updatedMembers };
     setSelectedGroup(updatedGroup);
     await updateGroupInList(updatedGroup);
+
+    trackMemberEdited(updatedGroup, memberBeingEdited, newName);
 
     setEditMemberModalVisible(false);
     setMemberBeingEdited(null);
@@ -508,22 +543,26 @@ export default function GroupsScreen() {
 
     if (editingExpenseId) {
       // update existing expense
-      const updatedExpenses = (selectedGroup.expenses || []).map((e) =>
-        e.id === editingExpenseId
-          ? {
-              ...e,
-              description: expenseDesc.trim(),
-              category: expenseCategory.trim() || null,
-              amount: numericAmount,
-              payerId,
-              participantIds:
-                splitMode === "custom"
-                  ? splits.map((s) => s.memberId)
-                  : participants,
-              splits,
-            }
-          : e
-      );
+      let updatedExpenseRef = null;
+      const updatedExpenses = (selectedGroup.expenses || []).map((e) => {
+        if (e.id === editingExpenseId) {
+          const updated = {
+            ...e,
+            description: expenseDesc.trim(),
+            category: expenseCategory.trim() || null,
+            amount: numericAmount,
+            payerId,
+            participantIds:
+              splitMode === "custom"
+                ? splits.map((s) => s.memberId)
+                : participants,
+            splits,
+          };
+          updatedExpenseRef = updated;
+          return updated;
+        }
+        return e;
+      });
 
       const updatedGroup = {
         ...selectedGroup,
@@ -532,6 +571,10 @@ export default function GroupsScreen() {
 
       setSelectedGroup(updatedGroup);
       await updateGroupInList(updatedGroup);
+
+      if (updatedExpenseRef) {
+        trackExpenseUpdated(updatedGroup, updatedExpenseRef);
+      }
     } else {
       // create new expense
       const newExpense = {
@@ -554,6 +597,8 @@ export default function GroupsScreen() {
 
       setSelectedGroup(updatedGroup);
       await updateGroupInList(updatedGroup);
+
+      trackExpenseCreated(updatedGroup, newExpense);
     }
 
     resetExpenseForm(selectedGroup);
@@ -583,6 +628,7 @@ export default function GroupsScreen() {
             if (editingExpenseId === expenseId) {
               resetExpenseForm(updatedGroup);
             }
+            trackExpenseDeleted(updatedGroup, expense);
           },
         },
       ]
@@ -592,9 +638,15 @@ export default function GroupsScreen() {
   const handleToggleSettleExpense = async (expenseId) => {
     if (!selectedGroup) return;
 
-    const updatedExpenses = selectedGroup.expenses.map((e) =>
-      e.id === expenseId ? { ...e, isSettled: !e.isSettled } : e
-    );
+    let toggledExpense = null;
+    const updatedExpenses = selectedGroup.expenses.map((e) => {
+      if (e.id === expenseId) {
+        const updated = { ...e, isSettled: !e.isSettled };
+        toggledExpense = updated;
+        return updated;
+      }
+      return e;
+    });
 
     const updatedGroup = {
       ...selectedGroup,
@@ -603,6 +655,10 @@ export default function GroupsScreen() {
 
     setSelectedGroup(updatedGroup);
     await updateGroupInList(updatedGroup);
+
+    if (toggledExpense) {
+      trackExpenseSettled(updatedGroup, toggledExpense);
+    }
   };
 
   const handleExpenseLongPress = (expense) => {
@@ -746,7 +802,7 @@ export default function GroupsScreen() {
         balancesMap[expense.payerId] += expense.amount;
       });
 
-    // Apply settlements (Option A)
+    // Apply settlements
     (group.settlements || []).forEach((s) => {
       if (balancesMap[s.fromMemberId] === undefined)
         balancesMap[s.fromMemberId] = 0;
@@ -845,6 +901,8 @@ export default function GroupsScreen() {
     setSettleModalVisible(false);
     setSettleFromMember(null);
     setSettleAmount("");
+
+    trackSettlementCreated(updatedGroup, settlement);
   };
 
   // ----- Group list item -----

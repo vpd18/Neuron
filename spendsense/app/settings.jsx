@@ -22,6 +22,14 @@ import { useRouter } from "expo-router";
 import * as Updates from "expo-updates";
 import { useTheme } from "./theme";
 
+import { submitUserFeedback } from "./api/telemetry";
+import {
+  trackSettingsStatsOpened,
+  trackDataExported,
+  trackDataReset,
+  trackProfileUpdated,
+} from "./api/telemetryEvents";
+
 // Storage keys
 const PERSONAL_KEY = "@spendsense_personal_expenses";
 const GROUPS_KEY = "@spendsense_groups";
@@ -61,9 +69,13 @@ export default function SettingsScreen() {
     personalAllTime: 0,
     groupAllTime: 0,
     totalAllTime: 0,
-    monthlyCategories: [], // [{ category, total }]
-    lifetimeByMonth: [], // [{ key, label, total }]
   });
+
+  // ---------- FEEDBACK STATES ----------
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackExperience, setFeedbackExperience] = useState("satisfied");
+  const [feedbackComments, setFeedbackComments] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
 
   useEffect(() => {
     loadNotify();
@@ -114,14 +126,11 @@ export default function SettingsScreen() {
   };
   const getCurrentMonthKey = () => getMonthKey(new Date());
 
-  const getMonthKeyPadded = (date) => {
-    const d = new Date(date);
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    return `${d.getFullYear()}-${month}`; // YYYY-MM
-  };
-
-  // ---------- TRACK EXPENSES (WITH CATEGORY + LIFETIME GRAPH) ----------
+  // ---------- TRACK EXPENSES ----------
   const handleOpenStats = async () => {
+    // Telemetry: user opened stats in settings
+    trackSettingsStatsOpened();
+
     setStatsLoading(true);
     try {
       // PERSONAL
@@ -134,32 +143,16 @@ export default function SettingsScreen() {
       let personalAllTime = 0;
       let personalThisMonth = 0;
 
-      const monthlyCategoryMap = {}; // category => total this month (personal + group share)
-      const lifetimeMonthMap = {}; // "YYYY-MM" => total (all time)
-
       personal.forEach((e) => {
         const amount = Number(e.amount) || 0;
         personalAllTime += amount;
 
-        if (!e.date) return;
-
-        const [day, month, year] = e.date.split("/");
-        const d = new Date(Number(year), Number(month) - 1, Number(day));
-        if (isNaN(d)) return;
-
-        const simpleKey = getMonthKey(d);
-        const paddedKey = getMonthKeyPadded(d);
-
-        // Lifetime (personal)
-        lifetimeMonthMap[paddedKey] =
-          (lifetimeMonthMap[paddedKey] || 0) + amount;
-
-        // This month (personal)
-        if (simpleKey === currentMonthKey) {
-          personalThisMonth += amount;
-          const cat = e.category || "Personal (uncategorized)";
-          monthlyCategoryMap[cat] =
-            (monthlyCategoryMap[cat] || 0) + amount;
+        if (e.date) {
+          const [day, month, year] = e.date.split("/");
+          const d = new Date(Number(year), Number(month) - 1, Number(day));
+          if (getMonthKey(d) === currentMonthKey) {
+            personalThisMonth += amount;
+          }
         }
       });
 
@@ -186,19 +179,11 @@ export default function SettingsScreen() {
 
           expenses.forEach((exp) => {
             const participants = exp.participantIds || [];
-            const amount = Number(exp.amount) || 0;
-            if (!participants.length || !amount) return;
+            if (!participants.length) return;
 
-            // this is close to your original logic, but a bit safer
-            let perHead;
-            if (Array.isArray(exp.splits) && exp.splits.length) {
-              // assume same share per participant from first split
-              perHead =
-                Number(exp.splits[0].share ?? exp.splits[0].amount) ||
-                amount / participants.length;
-            } else {
-              perHead = amount / participants.length;
-            }
+            let perHead = exp.splits?.length
+              ? exp.splits[0].share
+              : (exp.amount || 0) / participants.length;
 
             const countUser = participants.filter((id) =>
               userIds.includes(id)
@@ -208,45 +193,16 @@ export default function SettingsScreen() {
             const share = perHead * countUser;
 
             const createdAt = exp.createdAt || new Date().toISOString();
-            const d = new Date(createdAt);
-            if (isNaN(d)) return;
-
-            const simpleKey = getMonthKey(d);
-            const paddedKey = getMonthKeyPadded(d);
-
-            // Lifetime (group share)
-            lifetimeMonthMap[paddedKey] =
-              (lifetimeMonthMap[paddedKey] || 0) + share;
+            const expMonthKey = getMonthKey(createdAt);
 
             groupAllTime += share;
-
-            // This month (group share)
-            if (simpleKey === currentMonthKey) {
-              groupThisMonth += share;
-              const cat =
-                exp.category ||
-                (exp.title ? `Group: ${exp.title}` : "Group (uncategorized)");
-              monthlyCategoryMap[cat] =
-                (monthlyCategoryMap[cat] || 0) + share;
-            }
+            if (expMonthKey === currentMonthKey) groupThisMonth += share;
           });
         });
       }
 
       const totalAllTime = personalAllTime + groupAllTime;
       const totalThisMonth = personalThisMonth + groupThisMonth;
-
-      const monthlyCategories = Object.entries(monthlyCategoryMap)
-        .map(([category, total]) => ({ category, total }))
-        .sort((a, b) => b.total - a.total);
-
-      const lifetimeByMonth = Object.entries(lifetimeMonthMap)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, total]) => {
-          const [year, month] = key.split("-");
-          const label = `${month}/${String(year).slice(-2)}`; // e.g. 03/25
-          return { key, label, total };
-        });
 
       setStats({
         personalThisMonth,
@@ -255,8 +211,6 @@ export default function SettingsScreen() {
         personalAllTime,
         groupAllTime,
         totalAllTime,
-        monthlyCategories,
-        lifetimeByMonth,
       });
 
       setStatsModalVisible(true);
@@ -295,6 +249,10 @@ export default function SettingsScreen() {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+
+        // Telemetry
+        trackDataExported();
+
         Alert.alert("Export complete", "Downloaded JSON file.");
         setBusy(false);
         return;
@@ -308,6 +266,9 @@ export default function SettingsScreen() {
       const fileUri = dir + filename;
 
       await FileSystem.writeAsStringAsync(fileUri, jsonString);
+
+      // Telemetry
+      trackDataExported();
 
       Alert.alert("Export complete", `Saved to: ${fileUri}`);
     } catch (e) {
@@ -349,6 +310,9 @@ export default function SettingsScreen() {
       setNotifications(true);
       toggleTheme(true);
 
+      // Telemetry
+      trackDataReset();
+
       Alert.alert("Done", "Data cleared. App will reload.", [
         {
           text: "OK",
@@ -388,11 +352,45 @@ export default function SettingsScreen() {
       };
       await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(payload));
       setProfile(payload);
+
+      // Telemetry
+      trackProfileUpdated(payload);
+
       setProfileEditVisible(false);
       Alert.alert("Saved", "Your profile has been updated.");
     } catch (e) {
       console.error("[Settings] profile save error", e);
       Alert.alert("Error", "Failed to save profile.");
+    }
+  };
+
+  // ---------- FEEDBACK HANDLER ----------
+  const handleSubmitFeedback = async () => {
+    if (!feedbackRating) {
+      Alert.alert("Feedback", "Please select a rating from 1 to 5.");
+      return;
+    }
+
+    setFeedbackBusy(true);
+    try {
+      await submitUserFeedback({
+        rating: feedbackRating,
+        experience: feedbackExperience,
+        comments: feedbackComments,
+      });
+
+      Alert.alert("Thank you!", "Your feedback has been submitted.");
+      setFeedbackComments("");
+      // optional: reset rating/experience as well
+      // setFeedbackRating(0);
+      // setFeedbackExperience("satisfied");
+    } catch (e) {
+      Alert.alert(
+        "Error",
+        "Could not send feedback right now. Please try again later."
+      );
+    } finally {
+      setFeedbackBusy(false);
     }
   };
 
@@ -545,6 +543,86 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
         </TouchableOpacity>
 
+        {/* ---- FEEDBACK ---- */}
+        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Feedback</Text>
+
+        <View style={styles.feedbackCard}>
+          <Text style={styles.settingLabel}>Rate your experience</Text>
+
+          {/* Stars */}
+          <View style={{ flexDirection: "row", marginTop: 8 }}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity
+                key={star}
+                onPress={() => setFeedbackRating(star)}
+                style={{ marginRight: 4 }}
+              >
+                <Ionicons
+                  name={star <= feedbackRating ? "star" : "star-outline"}
+                  size={22}
+                  color={star <= feedbackRating ? "#FACC15" : palette.MUTED}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Experience pills */}
+          <View style={styles.feedbackPillRow}>
+            {[
+              { key: "good", label: "Good" },
+              { key: "satisfied", label: "Satisfied" },
+              { key: "needs_improvement", label: "Needs improvement" },
+            ].map((opt) => {
+              const selected = feedbackExperience === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.feedbackPill,
+                    selected && styles.feedbackPillSelected,
+                  ]}
+                  onPress={() => setFeedbackExperience(opt.key)}
+                >
+                  <Text
+                    style={[
+                      styles.feedbackPillText,
+                      selected && styles.feedbackPillTextSelected,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Comments */}
+          <TextInput
+            value={feedbackComments}
+            onChangeText={setFeedbackComments}
+            placeholder="Any comments or suggestions?"
+            placeholderTextColor={palette.MUTED}
+            style={[
+              styles.input,
+              { marginTop: 10, minHeight: 70, textAlignVertical: "top" },
+            ]}
+            multiline
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.feedbackButton,
+              (feedbackBusy || !feedbackRating) && { opacity: 0.5 },
+            ]}
+            disabled={feedbackBusy || !feedbackRating}
+            onPress={handleSubmitFeedback}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>
+              {feedbackBusy ? "Sending..." : "Submit feedback"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ---- ABOUT ---- */}
         <Text style={[styles.sectionTitle, { marginTop: 20 }]}>About</Text>
 
@@ -556,7 +634,7 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-            {/* ---------- STATS MODAL ---------- */}
+      {/* ---------- STATS MODAL ---------- */}
       <Modal
         visible={statsModalVisible}
         transparent
@@ -574,20 +652,18 @@ export default function SettingsScreen() {
           <Pressable
             style={{
               backgroundColor: palette.CARD,
-              paddingHorizontal: 16,
-              paddingTop: 12,
-              paddingBottom: 8,
+              padding: 16,
               borderTopLeftRadius: 24,
               borderTopRightRadius: 24,
               borderWidth: 1,
               borderColor: palette.BORDER,
-              maxHeight: "80%", // <= important
+              maxHeight: "80%",
             }}
             onPress={() => {}}
           >
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 16 }}
+              contentContainerStyle={{ paddingBottom: 8 }}
             >
               {/* HEADER */}
               <View
@@ -692,130 +768,6 @@ export default function SettingsScreen() {
                         ₹ {stats.groupAllTime.toFixed(0)}
                       </Text>
                     </View>
-                  </View>
-
-                  {/* MONTHLY CATEGORY BREAKDOWN WITH COLOUR TAGS + BARS */}
-                  <View style={styles.statsCard}>
-                    <Text style={styles.statsCardLabel}>
-                      This month by category
-                    </Text>
-                    {stats.monthlyCategories.length === 0 ? (
-                      <Text style={styles.emptyNote}>
-                        No category-wise data for this month yet.
-                      </Text>
-                    ) : (
-                      (() => {
-                        const maxCat = Math.max(
-                          ...stats.monthlyCategories.map((c) => c.total)
-                        );
-                        const safeMax = maxCat || 1;
-                        const colorPalette = [
-                          palette.PRIMARY,
-                          "#22C55E",
-                          "#F97316",
-                          "#38BDF8",
-                          "#E11D48",
-                          "#A855F7",
-                        ];
-
-                        return stats.monthlyCategories.map((item, index) => {
-                          const ratio = item.total / safeMax;
-                          const widthPercent = 10 + ratio * 90;
-                          const color =
-                            colorPalette[index % colorPalette.length];
-                          const softColor = color + "33";
-
-                          return (
-                            <View key={item.category} style={styles.categoryItem}>
-                              <View style={styles.categoryHeaderRow}>
-                                <View
-                                  style={[
-                                    styles.categoryTag,
-                                    { backgroundColor: softColor },
-                                  ]}
-                                >
-                                  <View
-                                    style={[
-                                      styles.categoryDot,
-                                      { backgroundColor: color },
-                                    ]}
-                                  />
-                                  <Text style={styles.categoryTagText}>
-                                    {item.category}
-                                  </Text>
-                                </View>
-                                <Text style={styles.categoryAmount}>
-                                  ₹ {item.total.toFixed(0)}
-                                </Text>
-                              </View>
-                              <View style={styles.categoryBarTrack}>
-                                <View
-                                  style={[
-                                    styles.categoryBarFill,
-                                    {
-                                      width: `${widthPercent}%`,
-                                      backgroundColor: color,
-                                    },
-                                  ]}
-                                />
-                              </View>
-                            </View>
-                          );
-                        });
-                      })()
-                    )}
-                  </View>
-
-                  {/* LIFETIME MONTH-WISE "GRAPH" (HORIZONTAL SCROLL) */}
-                  <View style={styles.statsCard}>
-                    <Text style={styles.statsCardLabel}>
-                      Lifetime month-wise trends
-                    </Text>
-                    {stats.lifetimeByMonth.length === 0 ? (
-                      <Text style={styles.emptyNote}>
-                        Add some expenses to see your month-wise trends.
-                      </Text>
-                    ) : (
-                      <View style={styles.chartContainer}>
-                        {(() => {
-                          const max = Math.max(
-                            ...stats.lifetimeByMonth.map((m) => m.total)
-                          );
-                          const safeMax = max || 1;
-
-                          return (
-                            <ScrollView
-                              horizontal
-                              showsHorizontalScrollIndicator={false}
-                              contentContainerStyle={styles.barRow}
-                            >
-                              {stats.lifetimeByMonth.map((m) => {
-                                const h = (m.total / safeMax) * 140;
-                                return (
-                                  <View key={m.key} style={styles.barWrapper}>
-                                    <Text style={styles.barValue}>
-                                      ₹{m.total.toFixed(0)}
-                                    </Text>
-                                    <View
-                                      style={[
-                                        styles.bar,
-                                        {
-                                          height: h,
-                                          backgroundColor: palette.PRIMARY,
-                                        },
-                                      ]}
-                                    />
-                                    <Text style={styles.barLabel}>
-                                      {m.label}
-                                    </Text>
-                                  </View>
-                                );
-                              })}
-                            </ScrollView>
-                          );
-                        })()}
-                      </View>
-                    )}
                   </View>
 
                   <Text
@@ -1073,7 +1025,6 @@ function makeStyles(p) {
     statsCardLabel: {
       color: p.MUTED,
       fontSize: 12,
-      marginBottom: 4,
     },
     statsCardValue: {
       color: p.TEXT,
@@ -1097,89 +1048,7 @@ function makeStyles(p) {
       fontWeight: "600",
     },
 
-    emptyNote: {
-      color: p.MUTED,
-      fontSize: 12,
-      marginTop: 4,
-    },
-
-    // Category styles
-    categoryItem: {
-      marginTop: 8,
-    },
-    categoryHeaderRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    categoryTag: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 999,
-    },
-    categoryDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      marginRight: 6,
-    },
-    categoryTagText: {
-      color: p.TEXT,
-      fontSize: 12,
-      fontWeight: "500",
-    },
-    categoryAmount: {
-      color: p.TEXT,
-      fontSize: 13,
-      fontWeight: "600",
-    },
-    categoryBarTrack: {
-      width: "100%",
-      height: 6,
-      borderRadius: 999,
-      backgroundColor: p.CARD,
-      marginTop: 4,
-      overflow: "hidden",
-    },
-    categoryBarFill: {
-      height: "100%",
-      borderRadius: 999,
-    },
-
-    // Lifetime chart
-    chartContainer: {
-      marginTop: 8,
-      height: 200,
-      justifyContent: "flex-end",
-    },
-    barRow: {
-      flexDirection: "row",
-      alignItems: "flex-end",
-      paddingRight: 4,
-    },
-    barWrapper: {
-      alignItems: "center",
-      marginHorizontal: 6,
-      minWidth: 40,
-    },
-    bar: {
-      width: 18,
-      borderRadius: 9,
-    },
-    barValue: {
-      fontSize: 10,
-      color: p.MUTED,
-      marginBottom: 4,
-    },
-    barLabel: {
-      marginTop: 4,
-      fontSize: 11,
-      color: p.MUTED,
-    },
-
-    // Shared input style (profile edit modal)
+    // Shared input style (profile edit modal & feedback)
     input: {
       backgroundColor: p.CARD,
       borderRadius: 12,
@@ -1190,6 +1059,51 @@ function makeStyles(p) {
       color: p.TEXT,
       fontSize: 14,
       marginTop: 4,
+    },
+
+    // Feedback
+    feedbackCard: {
+      backgroundColor: p.CARD_ELEVATED,
+      borderRadius: 18,
+      padding: 12,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: p.BORDER,
+    },
+    feedbackPillRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      marginTop: 10,
+      marginBottom: 4,
+    },
+    feedbackPill: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderWidth: 1,
+      borderColor: p.BORDER,
+      backgroundColor: p.CARD,
+      marginRight: 6,
+      marginBottom: 6,
+    },
+    feedbackPillSelected: {
+      backgroundColor: p.PRIMARY,
+      borderColor: p.PRIMARY,
+    },
+    feedbackPillText: {
+      color: p.MUTED,
+      fontSize: 12,
+    },
+    feedbackPillTextSelected: {
+      color: "#FFFFFF",
+      fontWeight: "600",
+    },
+    feedbackButton: {
+      backgroundColor: p.PRIMARY,
+      paddingVertical: 10,
+      borderRadius: 12,
+      alignItems: "center",
+      marginTop: 12,
     },
   });
 }
