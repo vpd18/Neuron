@@ -14,7 +14,16 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ThemeProvider, useTheme } from "../_theme";
+import { useTheme } from "../_theme";
+import { useFocusEffect } from "@react-navigation/native";
+
+import {
+  trackScreen,
+  trackPersonalExpenseCreated,
+  trackPersonalExpenseUpdated,
+  trackPersonalExpenseDeleted,
+  trackPersonalStatsOpened,
+} from "../api/telemetryEvents";
 
 const PERSONAL_KEY = "@spendsense_personal_expenses";
 
@@ -41,6 +50,13 @@ export default function PersonalScreen() {
 
   // whether to show all-time list instead of the selected month
   const [showAll, setShowAll] = useState(false);
+
+  // ---------- Telemetry: screen view ----------
+  useFocusEffect(
+    React.useCallback(() => {
+      trackScreen("Personal");
+    }, [])
+  );
 
   useEffect(() => {
     loadExpenses();
@@ -93,7 +109,10 @@ export default function PersonalScreen() {
   const isInMonth = (expense, monthDate) => {
     if (!expense.dateISO) return false;
     const d = new Date(expense.dateISO);
-    return d.getFullYear() === monthDate.getFullYear() && d.getMonth() === monthDate.getMonth();
+    return (
+      d.getFullYear() === monthDate.getFullYear() &&
+      d.getMonth() === monthDate.getMonth()
+    );
   };
 
   // expenses to display based on currentMonth or all-time
@@ -161,6 +180,8 @@ export default function PersonalScreen() {
     if (isNaN(numericAmount) || numericAmount <= 0) return;
 
     const nowISO = new Date().toISOString();
+    const todayDateString = new Date().toLocaleDateString("en-IN");
+
     if (editingId) {
       const next = expenses.map((e) =>
         e.id === editingId
@@ -170,12 +191,19 @@ export default function PersonalScreen() {
               amount: numericAmount,
               category: category.trim() || null,
               dateISO: e.dateISO || nowISO,
-              date: e.date || new Date().toLocaleDateString("en-IN"),
+              date: e.date || todayDateString,
             }
           : e
       );
       setExpenses(next);
       await saveExpenses(next);
+
+      // Telemetry: expense updated
+      const updated = next.find((e) => e.id === editingId);
+      if (updated) {
+        trackPersonalExpenseUpdated(updated);
+      }
+
       handleCloseAdd();
       return;
     }
@@ -185,32 +213,47 @@ export default function PersonalScreen() {
       title: title.trim(),
       amount: numericAmount,
       category: category.trim() || null,
-      date: new Date().toLocaleDateString("en-IN"),
+      date: todayDateString,
       dateISO: nowISO,
     };
 
     const next = [newExpense, ...expenses];
     setExpenses(next);
     await saveExpenses(next);
+
+    // Telemetry: expense created
+    trackPersonalExpenseCreated(newExpense);
+
     handleCloseAdd();
   };
 
   // ---------- Delete ----------
   const confirmDelete = (id) => {
-    Alert.alert("Delete expense", "Are you sure you want to delete this expense?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => handleDelete(id),
-      },
-    ]);
+    Alert.alert(
+      "Delete expense",
+      "Are you sure you want to delete this expense?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => handleDelete(id),
+        },
+      ]
+    );
   };
 
   const handleDelete = async (id) => {
+    const existing = expenses.find((e) => e.id === id);
+
     const next = expenses.filter((e) => e.id !== id);
     setExpenses(next);
     await saveExpenses(next);
+
+    // Telemetry: expense deleted
+    if (existing) {
+      trackPersonalExpenseDeleted(existing);
+    }
   };
 
   // ---------- Render ----------
@@ -220,11 +263,19 @@ export default function PersonalScreen() {
     <View style={styles.expenseCard}>
       <View style={{ flex: 1 }}>
         <Text style={styles.expenseTitle}>{item.title}</Text>
-        {item.category ? <Text style={styles.expenseCategory}>{item.category}</Text> : null}
+        {item.category ? (
+          <Text style={styles.expenseCategory}>{item.category}</Text>
+        ) : null}
         {item.date ? <Text style={styles.expenseDate}>{item.date}</Text> : null}
       </View>
 
-      <View style={{ alignItems: "flex-end", flexDirection: "row", alignItems: "center" }}>
+      <View
+        style={{
+          alignItems: "flex-end",
+          flexDirection: "row",
+          alignItems: "center",
+        }}
+      >
         <Text style={styles.expenseAmount}>₹ {item.amount}</Text>
 
         <TouchableOpacity
@@ -257,12 +308,12 @@ export default function PersonalScreen() {
           <Text style={styles.appTitle}>SpendSense</Text>
           <Text style={styles.appSubtitle}>Personal expense tracker</Text>
         </View>
-        <View style={styles.avatar}>
+        <View className="avatar" style={styles.avatar}>
           <Text style={styles.avatarText}>₹</Text>
         </View>
       </View>
 
-      {/* Summary card (kept minimal as original) */}
+      {/* Summary card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryRow}>
           <View>
@@ -286,51 +337,90 @@ export default function PersonalScreen() {
         </View>
       </View>
 
-      {/* ---------- Small monthly card: compact and fixed-width right area ---------- */}
+      {/* Small monthly card */}
       <View style={styles.smallCard}>
-        {/* Left area: month navigator + truncated month label (flexible) */}
+        {/* Left: month navigation */}
         <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
           <TouchableOpacity onPress={prevMonth} style={{ padding: 8 }}>
             <Ionicons name="chevron-back" size={18} color={palette.MUTED} />
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={setThisMonth} style={{ paddingHorizontal: 6, flex: 1 }}>
+          <TouchableOpacity
+            onPress={setThisMonth}
+            style={{ paddingHorizontal: 6, flex: 1 }}
+          >
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              style={{ color: palette.TEXT, fontWeight: "700", fontSize: 13, flexShrink: 1 }}
+              style={{
+                color: palette.TEXT,
+                fontWeight: "700",
+                fontSize: 13,
+                flexShrink: 1,
+              }}
             >
               {monthLabel(currentMonth)}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={nextMonth} style={{ padding: 8 }}>
-            <Ionicons name="chevron-forward" size={18} color={palette.MUTED} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={palette.MUTED}
+            />
           </TouchableOpacity>
         </View>
 
-        {/* Right area: fixed block so it never gets pushed out */}
+        {/* Right: month total + toggles */}
         <View style={styles.smallRightBlock}>
           <View style={{ marginRight: 8, alignItems: "flex-end" }}>
-            <Text style={{ color: palette.MUTED, fontSize: 11 }}>This month</Text>
-            <Text style={{ color: palette.TEXT, fontSize: 14, fontWeight: "800" }}>₹ {monthlyTotal.toFixed(0)}</Text>
+            <Text style={{ color: palette.MUTED, fontSize: 11 }}>
+              This month
+            </Text>
+            <Text
+              style={{
+                color: palette.TEXT,
+                fontSize: 14,
+                fontWeight: "800",
+              }}
+            >
+              ₹ {monthlyTotal.toFixed(0)}
+            </Text>
           </View>
 
-          <TouchableOpacity onPress={() => setShowAll((s) => !s)} style={styles.smallToggle}>
-            <Text style={{ color: palette.PRIMARY, fontWeight: "700", fontSize: 12 }}>
+          <TouchableOpacity
+            onPress={() => setShowAll((s) => !s)}
+            style={styles.smallToggle}
+          >
+            <Text
+              style={{
+                color: palette.PRIMARY,
+                fontWeight: "700",
+                fontSize: 12,
+              }}
+            >
               {showAll ? "Month" : "All"}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setIsStatsModalVisible(true)} style={styles.statsButton}>
+          <TouchableOpacity
+            onPress={() => {
+              trackPersonalStatsOpened(monthLabel(currentMonth));
+              setIsStatsModalVisible(true);
+            }}
+            style={styles.statsButton}
+          >
             <Ionicons name="stats-chart" size={18} color="#BBF7D0" />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Section header - small Add removed per request */}
+      {/* Section header */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{showAll ? "All expenses" : "Recent expenses"}</Text>
+        <Text style={styles.sectionTitle}>
+          {showAll ? "All expenses" : "Recent expenses"}
+        </Text>
       </View>
 
       {/* Expenses list */}
@@ -345,24 +435,36 @@ export default function PersonalScreen() {
       ) : (
         <FlatList
           data={visibleExpenses}
-          keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+          keyExtractor={(item, index) =>
+            item.id?.toString() || index.toString()
+          }
           renderItem={renderExpense}
           contentContainerStyle={{ paddingBottom: 160 }}
         />
       )}
 
-      {/* FAB: Add Expense — kept lower */}
-      <TouchableOpacity style={[styles.fab, { bottom: 30 }]} onPress={openAddModal}>
+      {/* FAB: Add Expense */}
+      <TouchableOpacity
+        style={[styles.fab, { bottom: 30 }]}
+        onPress={openAddModal}
+      >
         <Ionicons name="add" size={24} color="#FFFFFF" />
         <Text style={styles.fabText}>Add expense</Text>
       </TouchableOpacity>
 
       {/* Add / Edit Expense Modal */}
-      <Modal visible={isAddModalVisible} transparent animationType="slide" onRequestClose={handleCloseAdd}>
+      <Modal
+        visible={isAddModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseAdd}
+      >
         <Pressable style={styles.modalBackdrop} onPress={handleCloseAdd}>
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editingId ? "Edit expense" : "Add expense"}</Text>
+              <Text style={styles.modalTitle}>
+                {editingId ? "Edit expense" : "Add expense"}
+              </Text>
               <Pressable onPress={handleCloseAdd}>
                 <Ionicons name="close" size={22} color={palette.MUTED} />
               </Pressable>
@@ -404,18 +506,30 @@ export default function PersonalScreen() {
               disabled={!title.trim() || !amount.trim()}
               onPress={handleSaveExpense}
             >
-              <Text style={styles.modalButtonText}>{editingId ? "Save changes" : "Save"}</Text>
+              <Text style={styles.modalButtonText}>
+                {editingId ? "Save changes" : "Save"}
+              </Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
 
       {/* Monthly Stats Modal */}
-      <Modal visible={isStatsModalVisible} transparent animationType="fade" onRequestClose={() => setIsStatsModalVisible(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setIsStatsModalVisible(false)}>
+      <Modal
+        visible={isStatsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsStatsModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setIsStatsModalVisible(false)}
+        >
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Monthly stats — {monthLabel(currentMonth)}</Text>
+              <Text style={styles.modalTitle}>
+                Monthly stats — {monthLabel(currentMonth)}
+              </Text>
               <Pressable onPress={() => setIsStatsModalVisible(false)}>
                 <Ionicons name="close" size={22} color={palette.MUTED} />
               </Pressable>
@@ -423,7 +537,15 @@ export default function PersonalScreen() {
 
             <View style={{ marginBottom: 8 }}>
               <Text style={[styles.modalLabel, { marginTop: 0 }]}>Total</Text>
-              <Text style={{ color: palette.TEXT, fontWeight: "800", fontSize: 18 }}>₹ {monthlyTotal.toFixed(0)}</Text>
+              <Text
+                style={{
+                  color: palette.TEXT,
+                  fontWeight: "800",
+                  fontSize: 18,
+                }}
+              >
+                ₹ {monthlyTotal.toFixed(0)}
+              </Text>
             </View>
 
             <Text style={[styles.modalLabel]}>By category</Text>
@@ -431,15 +553,41 @@ export default function PersonalScreen() {
               data={monthlyCategoryStats()}
               keyExtractor={(it) => it.category}
               renderItem={({ item }) => (
-                <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 }}>
-                  <Text style={{ color: palette.TEXT }}>{item.category}</Text>
-                  <Text style={{ color: palette.TEXT, fontWeight: "700" }}>₹ {item.total.toFixed(0)}</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text style={{ color: palette.TEXT }}>
+                    {item.category}
+                  </Text>
+                  <Text
+                    style={{
+                      color: palette.TEXT,
+                      fontWeight: "700",
+                    }}
+                  >
+                    ₹ {item.total.toFixed(0)}
+                  </Text>
                 </View>
               )}
-              ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: palette.BORDER || "#0B1220", marginVertical: 4 }} />}
+              ItemSeparatorComponent={() => (
+                <View
+                  style={{
+                    height: 1,
+                    backgroundColor: palette.BORDER || "#0B1220",
+                    marginVertical: 4,
+                  }}
+                />
+              )}
             />
 
-            <TouchableOpacity style={[styles.modalButton, { marginTop: 12 }]} onPress={() => setIsStatsModalVisible(false)}>
+            <TouchableOpacity
+              style={[styles.modalButton, { marginTop: 12 }]}
+              onPress={() => setIsStatsModalVisible(false)}
+            >
               <Text style={styles.modalButtonText}>Done</Text>
             </TouchableOpacity>
           </Pressable>
@@ -497,7 +645,6 @@ function makeStyles(p) {
       borderColor: p.BORDER || "#1F2937",
     },
 
-    // small compact monthly card placed under summary
     smallCard: {
       backgroundColor: p.CARD,
       borderRadius: 14,
@@ -512,7 +659,6 @@ function makeStyles(p) {
       overflow: "hidden",
     },
 
-    // right block is fixed so icons never get pushed out
     smallRightBlock: {
       flexDirection: "row",
       alignItems: "center",
@@ -599,11 +745,6 @@ function makeStyles(p) {
       color: p.TEXT,
       fontSize: 16,
       fontWeight: "700",
-    },
-    sectionAction: {
-      color: p.PRIMARY,
-      fontSize: 13,
-      fontWeight: "600",
     },
     expenseCard: {
       backgroundColor: p.CARD_ELEVATED,
