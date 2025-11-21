@@ -9,13 +9,15 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@clerk/clerk-expo": "^2.19.3",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@supabase/supabase-js": "^2.83.0",
+    "@supabase/supabase-js": "^2.84.0",
     "expo": "~54.0.25",
     "expo-file-system": "~19.0.19",
     "expo-linking": "~8.0.9",
     "expo-router": "~6.0.15",
+    "expo-secure-store": "^15.0.7",
     "expo-status-bar": "~3.0.8",
     "expo-updates": "~29.0.12",
     "react": "19.1.0",
