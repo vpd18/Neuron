@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from "../theme";
+import { ThemeProvider, useTheme } from "../_theme";
 
 const GROUPS_KEY = "@spendsense_groups";
 const ACTIVE_GROUP_KEY = "@spendsense_active_group_id";

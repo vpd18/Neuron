@@ -2,7 +2,7 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { ThemeProvider, useTheme } from "../theme";
+import { ThemeProvider, useTheme } from "../_theme";
 
 // We keep a wrapper so we can read theme values inside Tabs
 function TabsWrapper() {

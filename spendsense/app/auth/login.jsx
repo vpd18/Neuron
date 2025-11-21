@@ -10,7 +10,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useTheme } from "../theme";
+import { ThemeProvider, useTheme } from "../_theme";
 
 export default function Login() {
   const router = useRouter();

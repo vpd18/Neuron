@@ -10,7 +10,8 @@ import {
     Easing,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useTheme } from "./theme";
+import { ThemeProvider, useTheme } from "./_theme";
+
 
 export default function Welcome() {
     const router = useRouter();

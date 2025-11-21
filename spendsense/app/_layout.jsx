@@ -2,7 +2,7 @@
 import React from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
-import { ThemeProvider, useTheme } from "./theme";
+import { ThemeProvider, useTheme } from "./_theme";
 import { ScaledSheet } from "react-native-size-matters";
 
 function RootStackWrapper() {

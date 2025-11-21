@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from "../theme";
+import { ThemeProvider, useTheme } from "../_theme";
 
 const PERSONAL_KEY = "@spendsense_personal_expenses";
 
