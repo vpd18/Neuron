@@ -86,7 +86,29 @@ spendsense/
 ------------------------------------------------------------
 📦 Installation & Running
 ------------------------------------------------------------
+📦 Quick Setup (Run on Any Laptop)
 
+Requirements:
+Node.js (>=18)
+npm or yarn
+Git
+
+1. Clone the repository
+
+git clone https://github.com/vpd18/Neuron.git
+
+2. Enter project directory
+
+cd Neuron/spendsense
+
+3. Install all dependencies
+
+npm run setup
+
+4. Start the application
+
+npm run start
+------------------------------------------------------------
 Clone the repository:
 git clone https://github.com/vpd18/Neuron.git
 cd Neuron/spendsense
